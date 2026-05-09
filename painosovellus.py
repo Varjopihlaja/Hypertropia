@@ -24,20 +24,17 @@ def smart_suggest(weight, reps, rpe, history):
     if len(history) < 3:
         return weight, "baseline"
 
-    last = pd.DataFrame(history[-5:])
+    df = pd.DataFrame(history[-5:])
 
-    avg_reps = last["reps"].mean()
-    avg_rpe = last["rpe"].mean()
+    avg_reps = df["reps"].mean()
+    avg_rpe = df["rpe"].mean()
 
-    # Strong progress
     if reps > avg_reps and rpe <= avg_rpe:
         return round(weight * 1.07, 1), "increase"
 
-    # Normal progress
     if reps >= avg_reps:
         return round(weight * 1.05, 1), "slight increase"
 
-    # Fatigue
     if rpe > avg_rpe + 1:
         return round(weight * 0.93, 1), "deload"
 
@@ -45,9 +42,15 @@ def smart_suggest(weight, reps, rpe, history):
 
 # ---------------- UI ---------------- #
 
-st.title("🏋️ Hypertrophy Tracker (Local Mode)")
+st.title("🏋️ Hypertrophy Tracker (With Date Logging)")
 
 day = st.selectbox("Workout Day", ["Upper", "Lower"])
+
+# 📅 GLOBAL DATE INPUT (NEW)
+selected_date = st.date_input(
+    "Workout Date",
+    value=datetime.today()
+)
 
 exercises = {
     "Upper": ["Pull-Up", "Dip", "Row", "Shoulder Press", "Bicep Curl", "Incline Press", "Abs"],
@@ -79,7 +82,7 @@ for ex in exercises[day]:
     st.success(f"➡ {action}: {suggestion} kg")
 
     session_entries.append({
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date": selected_date.strftime("%Y-%m-%d"),  # ✅ USE SELECTED DATE
         "exercise": ex,
         "sets": sets,
         "reps": reps,
@@ -95,7 +98,7 @@ for ex in exercises[day]:
 if st.button("💾 Save Workout"):
     data.extend(session_entries)
     save_data(data)
-    st.success("Workout saved locally!")
+    st.success(f"Workout saved for {selected_date}")
 
 # ---------------- ANALYTICS ---------------- #
 
@@ -104,12 +107,14 @@ st.markdown("## 📊 Progress")
 if data:
     df = pd.DataFrame(data)
 
+    df["date"] = pd.to_datetime(df["date"])
+
     st.line_chart(df.groupby("date")["volume"].sum())
 
     st.markdown("### Exercise Volume")
     st.bar_chart(df.groupby("exercise")["volume"].sum())
 
-    st.markdown("### Recent Workouts")
-    st.dataframe(df.tail(20))
+    st.markdown("### Recent Logs")
+    st.dataframe(df.sort_values("date", ascending=False).head(20))
 else:
-    st.write("No data yet. Start training 💪")
+    st.write("No data yet.")
