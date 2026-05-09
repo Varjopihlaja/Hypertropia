@@ -6,7 +6,7 @@ from datetime import datetime
 
 # ---------------- PASSWORD ---------------- #
 
-APP_PASSWORD = st.secrets.get("APP_PASSWORD", "1234")
+APP_PASSWORD = st.secrets.get("APP_PASSWORD", "kissa")
 
 def check_password():
     if "authenticated" not in st.session_state:
