@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # =========================================================
 # 🔐 LOGIN
@@ -90,9 +90,6 @@ MUSCLE_MAP = {
 TARGET_MIN = 8
 TARGET_MAX = 12
 
-DELOAD_FATIGUE = 2500
-DELOAD_RPE = 8.5
-
 # =========================================================
 # 🔁 HELPERS
 # =========================================================
@@ -102,7 +99,7 @@ def last_entry(ex):
     return items[-1] if items else None
 
 # =========================================================
-# 📊 FATIGUE + DELOAD
+# 📊 FATIGUE
 # =========================================================
 
 def compute_fatigue(df):
@@ -112,33 +109,31 @@ def compute_fatigue(df):
         out[m] = round(mdf["volume"].sum() * mdf["rpe"].mean() / 10, 1)
     return out
 
-
-def check_deload(df):
-    fatigue = compute_fatigue(df)
-    avg_rpe = df["rpe"].mean()
-
-    heavy = [m for m, v in fatigue.items() if v > DELOAD_FATIGUE]
-
-    if avg_rpe > DELOAD_RPE or len(heavy) >= 2:
-        return True, heavy
-
-    return False, heavy
-
 # =========================================================
-# 🟡 PLATEAU SYSTEM
+# 📈 PROGRESSION TRACKING
 # =========================================================
 
-def detect_plateau(ex_df):
+def progression_status(ex_df):
+
     ex_df = ex_df.sort_values("date")
 
-    if len(ex_df) < 4:
-        return False
+    if len(ex_df) < 3:
+        return "insufficient data"
 
     recent = ex_df.tail(3)["weight"].mean()
     older = ex_df.head(3)["weight"].mean()
 
-    return abs(recent - older) < 0.5
+    diff = recent - older
 
+    if diff > 1:
+        return "🟢 progressing"
+    elif diff < -1:
+        return "🔴 regressing"
+    return "🟡 plateau"
+
+# =========================================================
+# 🟡 PLATEAU BREAKER
+# =========================================================
 
 def plateau_breaker(ex_df):
 
@@ -147,36 +142,25 @@ def plateau_breaker(ex_df):
 
     avg_rpe = ex_df["rpe"].mean()
 
-    if not detect_plateau(ex_df):
-        return "No plateau → continue progression"
+    recent = ex_df.tail(3)["weight"].mean()
+    older = ex_df.head(3)["weight"].mean()
 
-    if avg_rpe > 8.5:
-        return "🔴 Fatigue plateau → reduce weight ~5% and recover"
+    if abs(recent - older) < 0.5:
 
-    return """
-🟡 Plateau detected:
+        if avg_rpe > 8.5:
+            return "🔴 Fatigue plateau → deload 5%"
+        return "🟡 Plateau → increase reps or micro-load"
 
-Option 1:
-→ Increase reps target (8–12 → 10–15)
-
-Option 2:
-→ Maintain weight, improve reps
-
-Option 3:
-→ Micro-load increase (+1–2 kg)
-"""
+    return "No plateau"
 
 # =========================================================
 # 🧠 DOUBLE PROGRESSION
 # =========================================================
 
-def ai_progression(history, weight, reps, rpe, ex, deload=False):
+def ai_progression(history, weight, reps, rpe, ex):
 
     avg = sum(reps) / len(reps)
     in_range = all(TARGET_MIN <= r <= TARGET_MAX for r in reps)
-
-    if deload:
-        return weight, "Deload → maintain weight"
 
     if len(history) < 3:
         return weight, "Build consistency"
@@ -192,7 +176,7 @@ def ai_progression(history, weight, reps, rpe, ex, deload=False):
         return weight, "Maintain"
 
     if rpe >= 9 or avg < TARGET_MIN:
-        return round(weight * 0.95, 1), "Too heavy → reduce"
+        return round(weight * 0.95, 1), "Too heavy"
 
     if avg < TARGET_MAX:
         return weight, "Build reps"
@@ -201,6 +185,45 @@ def ai_progression(history, weight, reps, rpe, ex, deload=False):
         return round(weight * 1.025, 1), "Increase weight"
 
     return weight, "Maintain"
+
+# =========================================================
+# 📅 WEEKLY REPORT
+# =========================================================
+
+def weekly_report(df):
+
+    if df.empty:
+        return []
+
+    df["date"] = pd.to_datetime(df["date"])
+
+    end = df["date"].max()
+    start = end - timedelta(days=7)
+
+    week = df[df["date"] >= start]
+
+    report = []
+
+    report.append(f"📅 Week volume: {week['volume'].sum():.0f}")
+
+    avg_rpe = week["rpe"].mean()
+    report.append(f"🔥 Avg intensity: {avg_rpe:.1f}")
+
+    fatigue = compute_fatigue(week)
+
+    most_fatigued = max(fatigue, key=fatigue.get) if fatigue else None
+
+    if most_fatigued:
+        report.append(f"⚠️ Most fatigued: {most_fatigued}")
+
+    if avg_rpe > 8.5:
+        report.append("🟥 Recommendation: reduce load next week")
+    elif avg_rpe < 7:
+        report.append("🟨 Recommendation: increase intensity")
+    else:
+        report.append("🟩 Training load is optimal")
+
+    return report
 
 # =========================================================
 # UI
@@ -229,33 +252,53 @@ if page == "🏋️ Train":
 
         with st.expander(ex):
 
-            sets = st.number_input("Sets", 1, 6, last["sets"] if last else 3, key=ex)
+            sets = st.number_input(
+                "Sets",
+                1, 6,
+                last["sets"] if last else 3,
+                key=f"{ex}_sets"
+            )
 
             reps = []
             last_reps = last["reps_list"] if last else [10]*sets
             cols = st.columns(sets)
 
             for i in range(sets):
-                with cols[i]:
-                    reps.append(st.number_input(f"S{i+1}", 0, 30, last_reps[i] if i < len(last_reps) else 10, key=ex+str(i)))
+                reps.append(
+                    st.number_input(
+                        f"S{i+1}",
+                        0, 30,
+                        last_reps[i] if i < len(last_reps) else 10,
+                        key=f"{ex}_rep_{i}"
+                    )
+                )
 
-            rpe = st.slider("RPE", 1, 10, 8, key=ex+"r")
+            rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_rpe")
 
             if ex in ASSISTED:
-                weight = st.number_input("Assistance", 0.0, 150.0, last["weight"] if last else 40.0)
+                weight = st.number_input(
+                    "Assistance",
+                    0.0, 150.0,
+                    last["weight"] if last else 40.0,
+                    key=f"{ex}_weight"
+                )
             else:
-                weight = st.number_input("Weight", 0.0, 300.0, last["weight"] if last else 20.0)
+                weight = st.number_input(
+                    "Weight",
+                    0.0, 300.0,
+                    last["weight"] if last else 20.0,
+                    key=f"{ex}_weight"
+                )
 
             df_hist = pd.DataFrame([x for x in data if x["exercise"] == ex])
-            deload, _ = check_deload(pd.DataFrame(data)) if data else (False, [])
 
-            suggestion, verdict = ai_progression(df_hist, weight, reps, rpe, ex, deload)
+            suggestion, verdict = ai_progression(df_hist, weight, reps, rpe, ex)
 
             st.write(verdict)
             st.success(f"Next: {suggestion}")
 
             session.append({
-                "date": date.strftime("%d %B %Y"),
+                "date": date.strftime("%Y-%m-%d"),
                 "exercise": ex,
                 "muscle": MUSCLE_MAP[ex],
                 "sets": sets,
@@ -266,10 +309,15 @@ if page == "🏋️ Train":
                 "volume": sum(reps) * weight
             })
 
-    if st.button("Save"):
+    if st.button("Save Workout"):
         data.extend(session)
         save_data(data)
         st.success("Saved")
+
+        st.markdown("## 🧠 Weekly-style immediate feedback")
+        df = pd.DataFrame(session)
+        for r in weekly_report(df):
+            st.info(r)
 
 # =========================================================
 # 📊 DASHBOARD
@@ -280,18 +328,19 @@ elif page == "📊 Dashboard":
     if data:
 
         df = pd.DataFrame(data)
-        df["date"] = pd.to_datetime(df["date"], format="%d %B %Y")
+        df["date"] = pd.to_datetime(df["date"])
 
         st.line_chart(df.groupby("date")["volume"].sum())
         st.bar_chart(df.groupby("muscle")["volume"].sum())
 
         ex = st.selectbox("Exercise", df["exercise"].unique())
-        ex_df = df[df["exercise"] == ex].sort_values("date")
+        ex_df = df[df["exercise"] == ex]
 
         st.line_chart(ex_df.set_index("date")["weight"])
         st.line_chart(ex_df.set_index("date")["avg_reps"])
 
-        st.markdown("### 🟡 Plateau Analysis")
+        st.markdown("## 📈 Status")
+        st.write(progression_status(ex_df))
         st.info(plateau_breaker(ex_df))
 
     else:
@@ -307,29 +356,20 @@ elif page == "🤖 AI Coach":
 
         df = pd.DataFrame(data)
 
-        st.markdown("## 🧠 Coach Status")
+        st.markdown("## 🧠 Weekly Report")
 
-        deload, heavy = check_deload(df)
+        for r in weekly_report(df):
+            st.info(r)
 
-        if deload:
-            st.error("⚠️ Deload active")
-            st.write(heavy)
-        else:
-            st.success("Recovery OK")
+        st.markdown("## 📊 Exercise Status")
 
         for ex in df["exercise"].unique():
 
             ex_df = df[df["exercise"] == ex]
 
-            if len(ex_df) < 2:
-                continue
-
-            st.markdown(f"### {ex}")
-
-            if detect_plateau(ex_df):
-                st.warning(plateau_breaker(ex_df))
-            else:
-                st.info("Progressing normally")
+            st.write(f"### {ex}")
+            st.write(progression_status(ex_df))
+            st.info(plateau_breaker(ex_df))
 
     else:
         st.write("No data")
