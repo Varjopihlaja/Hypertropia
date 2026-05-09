@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 # =========================================================
-# 🔐 PASSWORD
+# 🔐 LOGIN
 # =========================================================
 
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "kissa")
@@ -87,6 +87,12 @@ MUSCLE_MAP = {
     "Leg Extension": "legs"
 }
 
+TARGET_REPS_MIN = 8
+TARGET_REPS_MAX = 12
+
+DELOAD_FATIGUE_THRESHOLD = 2500
+DELOAD_RPE_THRESHOLD = 8.5
+
 # =========================================================
 # 🔁 HELPERS
 # =========================================================
@@ -95,92 +101,89 @@ def get_last_entry(data, exercise):
     entries = [x for x in data if x["exercise"] == exercise]
     return entries[-1] if entries else None
 
-def session_summary(session):
 
+def session_summary(session):
     df = pd.DataFrame(session)
-    summary = []
+    out = []
 
     avg_rpe = df["rpe"].mean()
-    volume_by_muscle = df.groupby("muscle")["volume"].sum()
+    vol = df.groupby("muscle")["volume"].sum()
 
-    if avg_rpe >= 8.5:
-        summary.append("High fatigue session → reduce intensity next workout.")
+    if avg_rpe > 8.5:
+        out.append("High fatigue session → reduce load next time")
 
-    if "chest" in volume_by_muscle and "back" in volume_by_muscle:
-        if volume_by_muscle["chest"] > volume_by_muscle["back"] * 1.5:
-            summary.append("Chest dominance detected → increase pulling volume.")
-
-    if "legs" in volume_by_muscle and volume_by_muscle["legs"] > 8000:
-        summary.append("High leg volume → ensure recovery before next lower day.")
+    if "chest" in vol and "back" in vol:
+        if vol["chest"] > vol["back"] * 1.5:
+            out.append("Chest > back imbalance → add pulling work")
 
     if avg_rpe < 7:
-        summary.append("Session felt easy → increase load next time.")
+        out.append("Low intensity → increase effort next session")
 
-    if not summary:
-        summary.append("Balanced session → good progression.")
+    if not out:
+        out.append("Balanced session → good progression")
 
-    return summary
-
-# =========================================================
-# 🧠 AI COACH
-# =========================================================
-
-def ai_progression(history, weight, reps_list, rpe, exercise):
-
-    avg_reps = sum(reps_list) / len(reps_list)
-    fatigue_drop = reps_list[0] - reps_list[-1]
-
-    if len(history) < 3:
-        return weight, "Build consistency first."
-
-    hist = history.tail(5)
-
-    avg_hist_reps = hist["avg_reps"].mean()
-    avg_hist_rpe = hist["rpe"].mean()
-
-    if exercise in ASSISTED_EXERCISES:
-
-        if avg_reps > avg_hist_reps and rpe <= avg_hist_rpe:
-            return round(weight * 0.93, 1), "Improving → reduce assistance"
-
-        if rpe > avg_hist_rpe + 1:
-            return round(weight * 1.05, 1), "Too hard → increase assistance"
-
-        return weight, "Stable → maintain assistance"
-
-    if rpe >= 9:
-        return round(weight * 0.93, 1), "High fatigue → deload"
-
-    if avg_reps > avg_hist_reps and rpe <= avg_hist_rpe:
-        return round(weight * 1.07, 1), "Progressing → increase load"
-
-    if fatigue_drop >= 4:
-        return round(weight * 0.95, 1), "Fatigue drop → reduce slightly"
-
-    return weight, "Stable → small increase possible"
+    return out
 
 # =========================================================
-# 📊 FATIGUE + PROGRAM
+# 🧠 FATIGUE + DELOAD
 # =========================================================
 
 def compute_fatigue(df):
     fatigue = {}
     for m in df["muscle"].unique():
-        mdf = df[df["muscle"] == m].tail(5)
+        mdf = df[df["muscle"] == m].tail(7)
         fatigue[m] = round(mdf["volume"].sum() * mdf["rpe"].mean() / 10, 1)
     return fatigue
 
-def generate_next_workout(df):
+
+def check_deload(df):
     fatigue = compute_fatigue(df)
-    priority = sorted(fatigue, key=fatigue.get)
+    avg_rpe = df["rpe"].mean()
 
-    selected = []
-    for muscle in priority:
-        for ex, m in MUSCLE_MAP.items():
-            if m == muscle and ex not in selected:
-                selected.append(ex)
+    heavy = [m for m, v in fatigue.items() if v > DELOAD_FATIGUE_THRESHOLD]
 
-    return selected[:6]
+    if avg_rpe > DELOAD_RPE_THRESHOLD or len(heavy) >= 2:
+        return True, heavy
+
+    return False, heavy
+
+# =========================================================
+# 🧠 DOUBLE PROGRESSION AI
+# =========================================================
+
+def ai_progression(history, weight, reps_list, rpe, exercise, deload=False):
+
+    avg_reps = sum(reps_list) / len(reps_list)
+    in_range = all(TARGET_REPS_MIN <= r <= TARGET_REPS_MAX for r in reps_list)
+
+    if deload:
+        return weight, "Deload active → maintain weight"
+
+    if len(history) < 3:
+        return weight, "Build consistency"
+
+    # assisted
+    if exercise in ASSISTED_EXERCISES:
+
+        if avg_reps < TARGET_REPS_MIN:
+            return weight, "Build reps → keep assistance"
+
+        if avg_reps >= TARGET_REPS_MAX and rpe <= 8:
+            return round(weight * 0.95, 1), "Reduce assistance"
+
+        return weight, "Maintain assistance"
+
+    # normal
+    if rpe >= 9 or avg_reps < TARGET_REPS_MIN:
+        return round(weight * 0.95, 1), "Too heavy → reduce"
+
+    if avg_reps < TARGET_REPS_MAX:
+        return weight, "Build reps"
+
+    if avg_reps >= TARGET_REPS_MAX and in_range and rpe <= 8:
+        return round(weight * 1.025, 1), "Increase weight"
+
+    return weight, "Maintain"
 
 # =========================================================
 # UI
@@ -197,8 +200,8 @@ page = st.sidebar.radio("Menu", ["🏋️ Train", "📊 Dashboard", "🤖 AI Coa
 
 if page == "🏋️ Train":
 
-    selected_date = st.date_input("Workout Date", value=datetime.today())
-    split = st.radio("Workout Type", ["Upper", "Lower"], horizontal=True)
+    date = st.date_input("Date", value=datetime.today())
+    split = st.radio("Split", ["Upper", "Lower"], horizontal=True)
 
     exercises = UPPER if split == "Upper" else LOWER
     session = []
@@ -211,47 +214,40 @@ if page == "🏋️ Train":
 
             col1, col2, col3 = st.columns(3)
 
-            # sets auto-fill
-            default_sets = last["sets"] if last else 3
             with col1:
-                sets = st.number_input("Sets", 1, 6, default_sets, key=ex+"sets")
+                sets = st.number_input("Sets", 1, 6, last["sets"] if last else 3, key=ex+"s")
 
-            # reps auto-fill
             reps_list = []
             last_reps = last["reps_list"] if last else [10]*sets
             cols = st.columns(sets)
 
             for i in range(sets):
-                default_rep = last_reps[i] if i < len(last_reps) else 10
                 with cols[i]:
-                    r = st.number_input(f"S{i+1}", 0, 30, default_rep, key=ex+f"r{i}")
+                    r = st.number_input(f"S{i+1}", 0, 30, last_reps[i] if i < len(last_reps) else 10, key=ex+str(i))
                     reps_list.append(r)
 
             with col2:
-                rpe = st.slider("RPE", 1, 10, 8, key=ex+"rpe")
+                rpe = st.slider("RPE", 1, 10, 8, key=ex+"r")
 
             with col3:
                 if ex in ASSISTED_EXERCISES:
-                    default_w = last["weight"] if last else 40.0
-                    weight = st.number_input("Assistance (kg)", 0.0, 150.0, default_w, key=ex+"w")
+                    weight = st.number_input("Assistance", 0.0, 150.0, last["weight"] if last else 40.0, key=ex+"w")
                 else:
-                    default_w = last["weight"] if last else 20.0
-                    weight = st.number_input("Weight (kg)", 0.0, 300.0, default_w, key=ex+"w")
+                    weight = st.number_input("Weight", 0.0, 300.0, last["weight"] if last else 20.0, key=ex+"w")
 
-            history = pd.DataFrame([x for x in data if x["exercise"] == ex])
+            df_hist = pd.DataFrame([x for x in data if x["exercise"] == ex])
 
-            suggestion, verdict = ai_progression(history, weight, reps_list, rpe, ex)
+            deload, _ = check_deload(pd.DataFrame(data)) if data else (False, [])
 
-            st.markdown("### 🧠 AI Coach")
+            suggestion, verdict = ai_progression(df_hist, weight, reps_list, rpe, ex, deload)
+
+            st.markdown("### 🧠 Coach")
             st.write(verdict)
 
-            if ex in ASSISTED_EXERCISES:
-                st.success(f"Next assistance: {suggestion} kg")
-            else:
-                st.success(f"Next weight: {suggestion} kg")
+            st.success(f"Next: {suggestion}")
 
             session.append({
-                "date": selected_date.strftime("%d %B %Y"),
+                "date": date.strftime("%d %B %Y"),
                 "exercise": ex,
                 "muscle": MUSCLE_MAP[ex],
                 "sets": sets,
@@ -262,15 +258,13 @@ if page == "🏋️ Train":
                 "volume": sum(reps_list) * weight
             })
 
-    if st.button("💾 Save Workout"):
+    if st.button("💾 Save"):
         data.extend(session)
         save_data(data)
 
-        st.success(f"{split} workout saved")
+        st.success("Saved")
 
-        # ---- SESSION COACH ---- #
         st.markdown("## 🧠 Session Coach")
-
         for s in session_summary(session):
             st.info(s)
 
@@ -285,21 +279,17 @@ elif page == "📊 Dashboard":
         df = pd.DataFrame(data)
         df["date"] = pd.to_datetime(df["date"], format="%d %B %Y")
 
-        st.markdown("### Volume Over Time")
         st.line_chart(df.groupby("date")["volume"].sum())
-
-        st.markdown("### Muscle Volume")
         st.bar_chart(df.groupby("muscle")["volume"].sum())
 
         ex = st.selectbox("Exercise", df["exercise"].unique())
-        ex_df = df[df["exercise"] == ex].sort_values("date")
+        ex_df = df[df["exercise"] == ex]
 
-        st.markdown(f"### {ex} Progress")
         st.line_chart(ex_df.set_index("date")["weight"])
         st.line_chart(ex_df.set_index("date")["avg_reps"])
 
     else:
-        st.write("No data yet.")
+        st.write("No data")
 
 # =========================================================
 # 🤖 AI COACH
@@ -313,26 +303,17 @@ elif page == "🤖 AI Coach":
 
         st.markdown("## 🧠 Progression Coach")
 
-        # ---------------- fatigue ---------------- #
-        fatigue = compute_fatigue(df)
+        deload, heavy = check_deload(df)
 
-        st.markdown("### 🧬 Muscle Recovery Status")
-
-        for muscle, value in fatigue.items():
-
-            if value > 2500:
-                st.error(f"🔴 {muscle}: high fatigue → avoid increasing load")
-            elif value > 1200:
-                st.warning(f"🟠 {muscle}: moderate fatigue → small progression only")
-            else:
-                st.success(f"🟢 {muscle}: fresh → good for progression")
-
-        # ---------------- per-exercise progression ---------------- #
-        st.markdown("### 📈 Exercise Progression Advice")
+        if deload:
+            st.error("⚠️ DELoad active")
+            st.write("Fatigued:", heavy)
+        else:
+            st.success("Recovery OK")
 
         for ex in df["exercise"].unique():
 
-            ex_df = df[df["exercise"] == ex].sort_values("date")
+            ex_df = df[df["exercise"] == ex]
 
             if len(ex_df) < 2:
                 continue
@@ -340,44 +321,23 @@ elif page == "🤖 AI Coach":
             last = ex_df.iloc[-1]
             prev = ex_df.iloc[-2]
 
-            st.markdown(f"#### {ex}")
+            st.markdown(f"### {ex}")
 
-            # weight trend
-            weight_change = last["weight"] - prev["weight"]
-            rep_change = last["avg_reps"] - prev["avg_reps"]
-
-            # assisted logic
             if ex in ASSISTED_EXERCISES:
 
-                if rep_change > 0:
-                    st.success("➡ Reduce assistance next session")
-                elif rep_change < 0:
-                    st.warning("➡ Increase assistance slightly")
+                if last["avg_reps"] > prev["avg_reps"]:
+                    st.success("Reduce assistance")
                 else:
-                    st.info("➡ Maintain assistance")
+                    st.info("Maintain")
 
             else:
 
-                if rep_change > 1 and last["rpe"] <= 8:
-                    st.success(f"➡ Increase weight next session (+2.5–5 kg)")
+                if last["avg_reps"] >= TARGET_REPS_MAX and last["rpe"] <= 8:
+                    st.success("Increase weight")
                 elif last["rpe"] >= 9:
-                    st.error("➡ Reduce weight (too much fatigue)")
-                elif weight_change <= 0:
-                    st.info("➡ Try small weight increase (+1–2.5 kg)")
+                    st.error("Reduce weight")
                 else:
-                    st.info("➡ Maintain or micro-progress")
-
-        # ---------------- global insight ---------------- #
-        st.markdown("### 🧠 Coach Summary")
-
-        avg_rpe = df["rpe"].mean()
-
-        if avg_rpe > 8.5:
-            st.error("You are training too close to failure too often → reduce load slightly")
-        elif avg_rpe < 7:
-            st.warning("Intensity is low → increase effort or weight")
-        else:
-            st.success("Good hypertrophy range → keep progressive overload")
+                    st.info("Maintain / build reps")
 
     else:
-        st.write("No data yet.")
+        st.write("No data")
