@@ -18,6 +18,41 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+import streamlit as st
+import os
+
+# ---------------- PASSWORD CONFIG ---------------- #
+
+APP_PASSWORD = os.getenv("APP_PASSWORD", "kissa")  # change default
+
+# ---------------- AUTH FUNCTION ---------------- #
+
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    st.title("🔐 Protected App")
+
+    password = st.text_input("Enter password", type="password")
+
+    if st.button("Login"):
+        if password == APP_PASSWORD:
+            st.session_state.authenticated = True
+            st.success("Access granted")
+            st.rerun()
+        else:
+            st.error("Wrong password")
+
+    return False
+
+# ---------------- BLOCK APP IF NOT AUTHENTICATED ---------------- #
+
+if not check_password():
+    st.stop()
+
 # ---------------- TRAINING MAP ---------------- #
 
 MUSCLE_MAP = {
