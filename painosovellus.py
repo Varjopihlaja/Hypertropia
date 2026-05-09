@@ -10,119 +10,107 @@ SUPABASE_KEY = "YOUR_KEY"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------------- AUTH ---------------- #
+# ---------------- SMART PROGRESSION ---------------- #
 
-def login_ui():
-    st.title("🔐 Login")
+def get_history(exercise):
+    res = supabase.table("workouts") \
+        .select("*") \
+        .eq("exercise", exercise) \
+        .order("date", desc=True) \
+        .limit(5) \
+        .execute()
+    return res.data
 
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+def smart_suggest(weight, reps, rpe, history):
+    if not history:
+        return weight, "baseline"
 
-    with tab1:
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
+    df = pd.DataFrame(history)
 
-        if st.button("Login"):
-            res = supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-            if res.user:
-                st.session_state.user = res.user
-                st.success("Logged in!")
-                st.rerun()
-            else:
-                st.error("Login failed")
+    avg_reps = df["reps"].mean()
+    avg_rpe = df["rpe"].mean()
 
-    with tab2:
-        email = st.text_input("New Email")
-        password = st.text_input("New Password", type="password")
+    # Strong progress
+    if reps > avg_reps and rpe <= avg_rpe:
+        return round(weight * 1.07, 1), "strong increase"
 
-        if st.button("Create Account"):
-            res = supabase.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            if res.user:
-                st.success("Account created! You can log in.")
-            else:
-                st.error("Signup failed")
-
-# ---------------- PROGRESSION ---------------- #
-
-def suggest(weight, reps, rpe):
-    if reps >= 12 and rpe <= 7:
-        return round(weight * 1.07, 1), "increase++"
-    elif reps >= 12:
+    # Normal progress
+    if reps >= avg_reps:
         return round(weight * 1.05, 1), "increase"
-    elif reps < 8 and rpe >= 9:
+
+    # Fatigue / regression
+    if rpe > avg_rpe + 1:
         return round(weight * 0.93, 1), "deload"
+
     return weight, "maintain"
 
-# ---------------- MAIN APP ---------------- #
+# ---------------- UI ---------------- #
 
-def app():
-    st.title("🏋️ Hypertrophy App")
+st.title("🏋️ Hypertrophy Tracker (No Login)")
 
-    user = st.session_state.user
-    user_id = user.id
+day = st.selectbox("Workout Day", ["Upper", "Lower"])
 
-    day = st.selectbox("Workout", ["Upper", "Lower"])
+exercises = {
+    "Upper": ["Pull-Up", "Dip", "Row", "Shoulder Press", "Bicep Curl", "Incline Press", "Abs"],
+    "Lower": ["RDL", "Squat", "Bulgarian Split Squat", "Leg Extension"]
+}
 
-    exercises = {
-        "Upper": ["Pull-Up", "Dip", "Row", "Shoulder Press", "Bicep Curl", "Incline Press", "Abs"],
-        "Lower": ["RDL", "Squat", "Bulgarian Split Squat", "Leg Extension"]
-    }
+entries = []
 
-    entries = []
+for ex in exercises[day]:
+    st.markdown(f"### {ex}")
 
-    for ex in exercises[day]:
-        st.subheader(ex)
+    col1, col2, col3 = st.columns(3)
 
-        sets = st.number_input(f"Sets {ex}", 1, 6, 3, key=ex)
-        reps = st.number_input(f"Avg reps {ex}", 0, 30, 10, key=ex+"r")
-        rpe = st.slider(f"RPE {ex}", 1, 10, 8, key=ex+"rpe")
-        weight = st.number_input(f"Weight {ex}", 0.0, 300.0, 20.0, key=ex+"w")
+    with col1:
+        sets = st.number_input(f"Sets {ex}", 1, 6, 3, key=ex+"s")
 
-        suggestion, action = suggest(weight, reps, rpe)
+    with col2:
+        reps = st.number_input(f"Reps {ex}", 0, 30, 10, key=ex+"r")
 
-        st.info(f"{action}: {suggestion}")
+    with col3:
+        rpe = st.slider(f"RPE {ex}", 1, 10, 8, key=ex+"rp")
 
-        entries.append({
-            "user_id": user_id,
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "exercise": ex,
-            "weight": weight,
-            "reps": reps,
-            "sets": sets,
-            "rpe": rpe,
-            "volume": sets * reps * weight,
-            "suggestion": suggestion,
-            "action": action
-        })
+    weight = st.number_input(f"Weight (kg) {ex}", 0.0, 300.0, 20.0, key=ex+"w")
 
-    if st.button("Save"):
-        supabase.table("workouts").insert(entries).execute()
-        st.success("Saved!")
+    history = get_history(ex)
+    suggestion, action = smart_suggest(weight, reps, rpe, history)
 
-    # -------- LOAD USER DATA -------- #
+    st.success(f"➡ {action}: {suggestion} kg")
 
-    res = supabase.table("workouts").select("*").eq("user_id", user_id).execute()
+    entries.append({
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "exercise": ex,
+        "weight": weight,
+        "reps": reps,
+        "sets": sets,
+        "rpe": rpe,
+        "volume": sets * reps * weight,
+        "suggestion": suggestion,
+        "action": action
+    })
 
-    if res.data:
-        df = pd.DataFrame(res.data)
+# ---------------- SAVE ---------------- #
 
-        st.subheader("Progress")
-        st.line_chart(df.groupby("date")["volume"].sum())
-        st.dataframe(df.tail(20))
+if st.button("💾 Save Workout"):
+    supabase.table("workouts").insert(entries).execute()
+    st.success("Saved!")
 
+# ---------------- ANALYTICS ---------------- #
 
-# ---------------- ROUTER ---------------- #
+st.markdown("## 📊 Progress Overview")
 
-if "user" not in st.session_state:
-    login_ui()
+res = supabase.table("workouts").select("*").execute()
+
+if res.data:
+    df = pd.DataFrame(res.data)
+
+    st.line_chart(df.groupby("date")["volume"].sum())
+
+    st.markdown("### Muscle Load (simple view)")
+    st.bar_chart(df.groupby("exercise")["volume"].sum())
+
+    st.markdown("### Recent Sets")
+    st.dataframe(df.tail(15))
 else:
-    if st.button("Logout"):
-        st.session_state.pop("user")
-        st.rerun()
-
-    app()
+    st.write("No data yet.")
