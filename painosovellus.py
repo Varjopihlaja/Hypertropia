@@ -144,66 +144,82 @@ data = load_data()
 page = st.sidebar.radio("Mode", ["🏋️ Train", "📊 Analytics", "🤖 AI Program"])
 
 # =========================================================
-# TRAIN
+# 🏋️ TRAIN (CLEAN FIXED SPLIT UI)
 # =========================================================
 
 if page == "🏋️ Train":
 
+    st.markdown("## 🧩 Log Workout")
+
     selected_date = st.date_input("Workout Date", value=datetime.today())
+
+    # ---- Select split ---- #
+    split = st.radio("Workout Type", ["Upper", "Lower"], horizontal=True)
+
+    EXERCISES_SPLIT = {
+        "Upper": ["Pull-Up", "Dip", "Row", "Shoulder Press", "Bicep Curl", "Incline Press", "Abs"],
+        "Lower": ["RDL", "Squat", "Bulgarian Split Squat", "Leg Extension"]
+    }
 
     session = []
 
-    st.markdown("## 🧩 Adaptive Workout Session")
+    st.markdown(f"## {split} Workout")
 
-    for ex in EXERCISES:
+    for ex in EXERCISES_SPLIT[split]:
 
-        st.markdown(f"### {ex}")
+        with st.expander(f"{ex}", expanded=False):
 
-        col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            sets = st.number_input(f"Sets {ex}", 1, 6, 3, key=ex+"s")
+            with col1:
+                sets = st.number_input(f"Sets", 1, 6, 3, key=ex+"s")
 
-        reps_list = []
-        cols = st.columns(sets)
+            # ---- per set reps ---- #
+            reps_list = []
+            cols = st.columns(sets)
 
-        for i in range(sets):
-            with cols[i]:
-                r = st.number_input(f"S{i+1}", 0, 30, 10, key=ex+str(i))
-                reps_list.append(r)
+            for i in range(sets):
+                with cols[i]:
+                    r = st.number_input(f"S{i+1}", 0, 30, 10, key=ex+f"r{i}")
+                    reps_list.append(r)
 
-        with col2:
-            rpe = st.slider(f"RPE {ex}", 1, 10, 8, key=ex+"r")
+            with col2:
+                rpe = st.slider(f"RPE", 1, 10, 8, key=ex+"rp")
 
-        with col3:
-            weight = st.number_input(f"Weight {ex}", 0.0, 300.0, 20.0, key=ex+"w")
+            with col3:
+                weight = st.number_input(f"Weight (kg)", 0.0, 300.0, 20.0, key=ex+"w")
 
-        history_df = pd.DataFrame([x for x in data if x["exercise"] == ex])
+            # ---- AI suggestion ---- #
+            history = [x for x in data if x["exercise"] == ex]
 
-        suggestion, verdict = ai_progression(history_df, weight, reps_list, rpe)
+            suggestion, verdict = ai_progression(
+                pd.DataFrame(history),
+                weight,
+                reps_list,
+                rpe
+            )
 
-        muscle = MUSCLE_MAP[ex]
+            st.info(f"{verdict} → {suggestion} kg")
 
-        st.info(f"{verdict} → {suggestion} kg")
+            session.append({
+                "date": selected_date.strftime("%d %B %Y"),
+                "exercise": ex,
+                "muscle": MUSCLE_MAP[ex],
+                "sets": sets,
+                "reps_list": reps_list,
+                "avg_reps": sum(reps_list)/len(reps_list),
+                "rpe": rpe,
+                "weight": weight,
+                "volume": sum(reps_list) * weight,
+                "suggestion": suggestion,
+                "verdict": verdict
+            })
 
-        session.append({
-            "date": selected_date.strftime("%d %B %Y"),
-            "exercise": ex,
-            "muscle": muscle,
-            "sets": sets,
-            "reps_list": reps_list,
-            "avg_reps": sum(reps_list)/len(reps_list),
-            "rpe": rpe,
-            "weight": weight,
-            "volume": sum(reps_list) * weight,
-            "suggestion": suggestion,
-            "verdict": verdict
-        })
-
+    # ---- Save whole workout ---- #
     if st.button("💾 Save Workout"):
         data.extend(session)
         save_data(data)
-        st.success("Saved")
+        st.success(f"{split} workout saved")
 
 # =========================================================
 # ANALYTICS
