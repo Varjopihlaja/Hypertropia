@@ -18,144 +18,172 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-# ---------------- EXERCISES ---------------- #
+# ---------------- TRAINING PROGRAM ---------------- #
 
-EXERCISES = {
-    "Upper": ["Pull-Up", "Dip", "Row", "Shoulder Press", "Bicep Curl", "Incline Press", "Abs"],
-    "Lower": ["RDL", "Squat", "Bulgarian Split Squat", "Leg Extension"]
+PROGRAM = {
+    "Upper": {
+        "Push": ["Dip", "Incline Press", "Shoulder Press"],
+        "Pull": ["Pull-Up", "Row", "Bicep Curl"],
+        "Core": ["Abs"]
+    },
+    "Lower": {
+        "Posterior": ["RDL", "Bulgarian Split Squat"],
+        "Quad": ["Squat", "Leg Extension"]
+    }
 }
 
-# ---------------- AI COACH CORE ---------------- #
+# ---------------- AI PROGRESSION ---------------- #
 
-def get_history(data, exercise):
-    df = pd.DataFrame([x for x in data if x["exercise"] == exercise])
-    if df.empty:
-        return df
-    df["date"] = pd.to_datetime(df["date"])
-    return df.sort_values("date")
+def suggest(weight, reps_list, rpe):
+    avg_reps = sum(reps_list) / len(reps_list)
+    fatigue = reps_list[0] - reps_list[-1]
 
-def ai_coach(history, weight, reps, rpe):
-    if len(history) < 3:
-        return weight, "🟡 Not enough data → baseline"
+    if rpe >= 9:
+        return round(weight * 0.93, 1), "🔴 deload (high fatigue)"
 
-    last = history.tail(5)
+    if avg_reps >= 12 and rpe <= 7:
+        return round(weight * 1.07, 1), "🟢 increase load"
 
-    avg_reps = last["reps"].mean()
-    avg_rpe = last["rpe"].mean()
-    trend = last["weight"].diff().mean()
+    if fatigue >= 4:
+        return round(weight * 0.95, 1), "🟠 fatigue drop → slight reduce"
 
-    # --- Fatigue detection --- #
-    if rpe > avg_rpe + 1:
-        return round(weight * 0.93, 1), "🔴 High fatigue → deload"
+    return weight, "⚪ maintain"
 
-    # --- Strong progression --- #
-    if reps > avg_reps and rpe <= avg_rpe:
-        return round(weight * 1.07, 1), "🟢 Strong progress → increase"
+# ---------------- UI SETUP ---------------- #
 
-    # --- Mild progress --- #
-    if reps >= avg_reps:
-        return round(weight * 1.05, 1), "🟢 Progressing → slight increase"
+st.set_page_config(page_title="AI Gym Coach", layout="wide")
 
-    # --- Plateau --- #
-    if abs(trend) < 0.2:
-        return round(weight * 1.03, 1), "🟠 Plateau → small increase"
-
-    return weight, "⚪ Maintain"
-
-# ---------------- UI ---------------- #
-
-st.title("🏋️ AI Gym Coach")
-
-day = st.selectbox("Workout Day", ["Upper", "Lower"])
-
-selected_date = st.date_input(
-    "Workout Date",
-    value=datetime.today()
-)
+st.title("🏋️ AI Training System")
 
 data = load_data()
-session = []
 
-st.markdown("## 🧩 Log Workout")
+# ---------------- SIDEBAR NAV ---------------- #
 
-for ex in EXERCISES[day]:
-    st.markdown(f"### {ex}")
+page = st.sidebar.radio("Navigation", ["🏋️ Train", "📊 Progress", "📅 Program"])
 
-    col1, col2, col3 = st.columns(3)
+# =========================================================
+# 🏋️ TRAINING PAGE
+# =========================================================
 
-    with col1:
-        sets = st.number_input(f"Sets {ex}", 1, 6, 3, key=ex+"s")
+if page == "🏋️ Train":
 
-    with col2:
-        reps = st.number_input(f"Reps {ex}", 0, 30, 10, key=ex+"r")
+    day = st.selectbox("Workout Day", ["Upper", "Lower"])
+    selected_date = st.date_input("Workout Date", value=datetime.today())
 
-    with col3:
-        rpe = st.slider(f"RPE {ex}", 1, 10, 8, key=ex+"rp")
+    session = []
 
-    weight = st.number_input(f"Weight (kg) {ex}", 0.0, 300.0, 20.0, key=ex+"w")
+    st.markdown("## 🧩 Workout Session")
 
-    history = get_history(data, ex)
-    suggestion, verdict = ai_coach(history, weight, reps, rpe)
+    for group, exercises in PROGRAM[day].items():
 
-    st.info(f"{verdict} → {suggestion} kg")
+        st.markdown(f"### {group}")
 
-    session.append({
-        "date": selected_date.strftime("%d %B %Y"),
-        "exercise": ex,
-        "sets": sets,
-        "reps": reps,
-        "rpe": rpe,
-        "weight": weight,
-        "volume": sets * reps * weight,
-        "suggestion": suggestion,
-        "verdict": verdict
-    })
+        for ex in exercises:
 
-# ---------------- SAVE ---------------- #
+            with st.container():
+                st.markdown(f"#### {ex}")
 
-if st.button("💾 Save Session"):
-    data.extend(session)
-    save_data(data)
-    st.success("Workout saved")
+                col1, col2, col3 = st.columns([1,1,2])
 
-# ---------------- AI INSIGHTS DASHBOARD ---------------- #
+                with col1:
+                    sets = st.number_input(f"Sets {ex}", 1, 6, 3, key=ex+"s")
 
-st.markdown("## 🧠 AI Coach Insights")
+                reps_list = []
+                st.caption("Reps per set")
 
-if data:
-    df = pd.DataFrame(data)
-    df["date"] = pd.to_datetime(df["date"], format="%d %B %Y")
+                cols = st.columns(sets)
+                for i in range(sets):
+                    with cols[i]:
+                        r = st.number_input(f"S{i+1}", 0, 30, 10, key=ex+f"r{i}")
+                        reps_list.append(r)
 
-    # ---- overall volume ---- #
-    st.markdown("### 📊 Total Volume Trend")
-    st.line_chart(df.groupby("date")["volume"].sum())
+                with col2:
+                    rpe = st.slider(f"RPE {ex}", 1, 10, 8, key=ex+"rp")
 
-    # ---- exercise selector ---- #
-    ex = st.selectbox("Select Exercise", df["exercise"].unique())
+                with col3:
+                    weight = st.number_input(f"Weight (kg)", 0.0, 300.0, 20.0, key=ex+"w")
 
-    ex_df = df[df["exercise"] == ex].sort_values("date")
+                suggestion, verdict = suggest(weight, reps_list, rpe)
 
-    st.markdown(f"### 📈 {ex} Progress")
+                st.info(f"{verdict} → {suggestion} kg")
 
-    st.line_chart(ex_df.set_index("date")["weight"])
-    st.line_chart(ex_df.set_index("date")["reps"])
-    st.line_chart(ex_df.set_index("date")["volume"])
+                session.append({
+                    "date": selected_date.strftime("%d %B %Y"),
+                    "exercise": ex,
+                    "group": group,
+                    "sets": sets,
+                    "reps_list": reps_list,
+                    "avg_reps": sum(reps_list)/len(reps_list),
+                    "rpe": rpe,
+                    "weight": weight,
+                    "volume": sum(reps_list) * weight,
+                    "suggestion": suggestion,
+                    "verdict": verdict
+                })
 
-    # ---- AI summary ---- #
-    last_5 = ex_df.tail(5)
+    if st.button("💾 Save Workout"):
+        data.extend(session)
+        save_data(data)
+        st.success("Workout saved")
 
-    if len(last_5) > 2:
-        avg_rpe = last_5["rpe"].mean()
-        trend = last_5["weight"].diff().mean()
+# =========================================================
+# 📊 PROGRESS PAGE
+# =========================================================
 
-        st.markdown("### 🧠 Coach Summary")
+elif page == "📊 Progress":
 
-        if avg_rpe > 8.5:
-            st.warning("High fatigue detected → consider deload or reduced sets")
-        elif trend > 0:
-            st.success("Upward strength trend → keep progressing load")
-        else:
-            st.info("Stable performance → small progressive overload recommended")
+    st.markdown("## 📈 Progress Dashboard")
 
-else:
-    st.write("No data yet. Start training 💪")
+    if data:
+        df = pd.DataFrame(data)
+        df["date"] = pd.to_datetime(df["date"], format="%d %B %Y")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### Total Volume")
+            st.line_chart(df.groupby("date")["volume"].sum())
+
+        with col2:
+            st.markdown("### Exercise Volume")
+            st.bar_chart(df.groupby("exercise")["volume"].sum())
+
+        st.markdown("### Exercise Detail")
+
+        ex = st.selectbox("Select Exercise", df["exercise"].unique())
+        ex_df = df[df["exercise"] == ex].sort_values("date")
+
+        st.line_chart(ex_df.set_index("date")["weight"])
+        st.line_chart(ex_df.set_index("date")["avg_reps"])
+
+        st.dataframe(ex_df.tail(10))
+
+    else:
+        st.write("No data yet")
+
+# =========================================================
+# 📅 PROGRAM PAGE
+# =========================================================
+
+elif page == "📅 Program":
+
+    st.markdown("## 🧠 Weekly Training Structure")
+
+    st.markdown("""
+### Weekly Split
+- Day 1: Upper (Push/Pull/Core)
+- Day 2: Lower (Posterior/Quad)
+- Day 3: Rest or Light Cardio
+- Repeat
+
+---
+
+### Why this works
+- Balanced push/pull volume
+- 2x weekly muscle frequency
+- Recovery built in
+""")
+
+    st.markdown("### Exercise Groups")
+
+    st.json(PROGRAM)
