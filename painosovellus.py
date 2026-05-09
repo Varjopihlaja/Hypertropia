@@ -1,44 +1,43 @@
 import streamlit as st
-from supabase import create_client
 import pandas as pd
+import json
 from datetime import datetime
+import os
 
-# ---------------- CONFIG ---------------- #
+# ---------------- STORAGE ---------------- #
 
-SUPABASE_URL = "YOUR_URL"
-SUPABASE_KEY = "YOUR_KEY"
+DATA_FILE = "workouts.json"
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 # ---------------- SMART PROGRESSION ---------------- #
 
-def get_history(exercise):
-    res = supabase.table("workouts") \
-        .select("*") \
-        .eq("exercise", exercise) \
-        .order("date", desc=True) \
-        .limit(5) \
-        .execute()
-    return res.data
-
 def smart_suggest(weight, reps, rpe, history):
-    if not history:
+    if len(history) < 3:
         return weight, "baseline"
 
-    df = pd.DataFrame(history)
+    last = pd.DataFrame(history[-5:])
 
-    avg_reps = df["reps"].mean()
-    avg_rpe = df["rpe"].mean()
+    avg_reps = last["reps"].mean()
+    avg_rpe = last["rpe"].mean()
 
     # Strong progress
     if reps > avg_reps and rpe <= avg_rpe:
-        return round(weight * 1.07, 1), "strong increase"
+        return round(weight * 1.07, 1), "increase"
 
     # Normal progress
     if reps >= avg_reps:
-        return round(weight * 1.05, 1), "increase"
+        return round(weight * 1.05, 1), "slight increase"
 
-    # Fatigue / regression
+    # Fatigue
     if rpe > avg_rpe + 1:
         return round(weight * 0.93, 1), "deload"
 
@@ -46,7 +45,7 @@ def smart_suggest(weight, reps, rpe, history):
 
 # ---------------- UI ---------------- #
 
-st.title("🏋️ Hypertrophy Tracker (No Login)")
+st.title("🏋️ Hypertrophy Tracker (Local Mode)")
 
 day = st.selectbox("Workout Day", ["Upper", "Lower"])
 
@@ -55,7 +54,8 @@ exercises = {
     "Lower": ["RDL", "Squat", "Bulgarian Split Squat", "Leg Extension"]
 }
 
-entries = []
+data = load_data()
+session_entries = []
 
 for ex in exercises[day]:
     st.markdown(f"### {ex}")
@@ -73,18 +73,18 @@ for ex in exercises[day]:
 
     weight = st.number_input(f"Weight (kg) {ex}", 0.0, 300.0, 20.0, key=ex+"w")
 
-    history = get_history(ex)
+    history = [x for x in data if x["exercise"] == ex]
     suggestion, action = smart_suggest(weight, reps, rpe, history)
 
     st.success(f"➡ {action}: {suggestion} kg")
 
-    entries.append({
+    session_entries.append({
         "date": datetime.now().strftime("%Y-%m-%d"),
         "exercise": ex,
-        "weight": weight,
-        "reps": reps,
         "sets": sets,
+        "reps": reps,
         "rpe": rpe,
+        "weight": weight,
         "volume": sets * reps * weight,
         "suggestion": suggestion,
         "action": action
@@ -93,24 +93,23 @@ for ex in exercises[day]:
 # ---------------- SAVE ---------------- #
 
 if st.button("💾 Save Workout"):
-    supabase.table("workouts").insert(entries).execute()
-    st.success("Saved!")
+    data.extend(session_entries)
+    save_data(data)
+    st.success("Workout saved locally!")
 
 # ---------------- ANALYTICS ---------------- #
 
-st.markdown("## 📊 Progress Overview")
+st.markdown("## 📊 Progress")
 
-res = supabase.table("workouts").select("*").execute()
-
-if res.data:
-    df = pd.DataFrame(res.data)
+if data:
+    df = pd.DataFrame(data)
 
     st.line_chart(df.groupby("date")["volume"].sum())
 
-    st.markdown("### Muscle Load (simple view)")
+    st.markdown("### Exercise Volume")
     st.bar_chart(df.groupby("exercise")["volume"].sum())
 
-    st.markdown("### Recent Sets")
-    st.dataframe(df.tail(15))
+    st.markdown("### Recent Workouts")
+    st.dataframe(df.tail(20))
 else:
-    st.write("No data yet.")
+    st.write("No data yet. Start training 💪")
