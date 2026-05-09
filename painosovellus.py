@@ -311,13 +311,73 @@ elif page == "🤖 AI Coach":
 
         df = pd.DataFrame(data)
 
-        st.markdown("## 🧠 Recommended Workout")
+        st.markdown("## 🧠 Progression Coach")
 
-        for ex in generate_next_workout(df):
-            st.success(ex)
+        # ---------------- fatigue ---------------- #
+        fatigue = compute_fatigue(df)
 
-        st.markdown("### Fatigue Map")
-        st.json(compute_fatigue(df))
+        st.markdown("### 🧬 Muscle Recovery Status")
+
+        for muscle, value in fatigue.items():
+
+            if value > 2500:
+                st.error(f"🔴 {muscle}: high fatigue → avoid increasing load")
+            elif value > 1200:
+                st.warning(f"🟠 {muscle}: moderate fatigue → small progression only")
+            else:
+                st.success(f"🟢 {muscle}: fresh → good for progression")
+
+        # ---------------- per-exercise progression ---------------- #
+        st.markdown("### 📈 Exercise Progression Advice")
+
+        for ex in df["exercise"].unique():
+
+            ex_df = df[df["exercise"] == ex].sort_values("date")
+
+            if len(ex_df) < 2:
+                continue
+
+            last = ex_df.iloc[-1]
+            prev = ex_df.iloc[-2]
+
+            st.markdown(f"#### {ex}")
+
+            # weight trend
+            weight_change = last["weight"] - prev["weight"]
+            rep_change = last["avg_reps"] - prev["avg_reps"]
+
+            # assisted logic
+            if ex in ASSISTED_EXERCISES:
+
+                if rep_change > 0:
+                    st.success("➡ Reduce assistance next session")
+                elif rep_change < 0:
+                    st.warning("➡ Increase assistance slightly")
+                else:
+                    st.info("➡ Maintain assistance")
+
+            else:
+
+                if rep_change > 1 and last["rpe"] <= 8:
+                    st.success(f"➡ Increase weight next session (+2.5–5 kg)")
+                elif last["rpe"] >= 9:
+                    st.error("➡ Reduce weight (too much fatigue)")
+                elif weight_change <= 0:
+                    st.info("➡ Try small weight increase (+1–2.5 kg)")
+                else:
+                    st.info("➡ Maintain or micro-progress")
+
+        # ---------------- global insight ---------------- #
+        st.markdown("### 🧠 Coach Summary")
+
+        avg_rpe = df["rpe"].mean()
+
+        if avg_rpe > 8.5:
+            st.error("You are training too close to failure too often → reduce load slightly")
+        elif avg_rpe < 7:
+            st.warning("Intensity is low → increase effort or weight")
+        else:
+            st.success("Good hypertrophy range → keep progressive overload")
 
     else:
         st.write("No data yet.")
