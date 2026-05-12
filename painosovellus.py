@@ -4,6 +4,13 @@ import json
 import os
 from datetime import datetime, timedelta
 
+from supabase import create_client
+
+SUPABASE_URL = st.secrets["https://pfaassiosclxxyudkmpe.supabase.co"]
+SUPABASE_KEY = st.secrets["sb_publishable_qZkq-1BQ3x-TBgofYW5cow_kX-R-mC-"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 # =========================================================
 # 🔐 LOGIN
 # =========================================================
@@ -36,19 +43,25 @@ if not check_password():
 # 💾 STORAGE
 # =========================================================
 
-DATA_FILE = "workouts.json"
-
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return []
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    response = supabase.table("workouts").select("*").execute()
+    return response.data if response.data else []
 
 data = load_data()
+
+def save_data(session):
+    for row in session:
+        supabase.table("workouts").insert({
+            "date": row["date"],
+            "exercise": row["exercise"],
+            "muscle": row["muscle"],
+            "sets": row["sets"],
+            "reps_list": row["reps_list"],
+            "avg_reps": row["avg_reps"],
+            "rpe": row["rpe"],
+            "weight": row["weight"],
+            "volume": row["volume"]
+        }).execute()
 
 # =========================================================
 # 🧠 CONFIG
