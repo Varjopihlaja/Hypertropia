@@ -10,6 +10,9 @@ APP_PASSWORD = st.secrets["APP_PASSWORD"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# =========================================================
+# 🔐 LOGIN
+# =========================================================
 
 def check_password():
     if "auth" not in st.session_state:
@@ -20,10 +23,9 @@ def check_password():
 
     st.title("Login")
 
-    # IMPORTANT: form enables Enter-to-submit
     with st.form("login_form"):
         pw = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")  # <-- Enter triggers this
+        submitted = st.form_submit_button("Login")
 
     if submitted:
         if pw == APP_PASSWORD:
@@ -33,6 +35,9 @@ def check_password():
             st.error("Wrong password")
 
     return False
+
+if not check_password():
+    st.stop()
 
 # =========================================================
 # 💾 DATABASE
@@ -48,7 +53,7 @@ def save_data(session):
 data = load_data()
 
 # =========================================================
-# 🧠 CONFIG (EXPANDED)
+# 🧠 CONFIG
 # =========================================================
 
 UPPER = [
@@ -92,6 +97,17 @@ TARGET_MIN = 8
 TARGET_MAX = 15
 
 # =========================================================
+# 🧠 FIX: 1RM ESTIMATOR (MISSING PIECE)
+# =========================================================
+
+def estimate_1rm(weight, reps):
+    """
+    Epley formula:
+    1RM ≈ weight × (1 + reps / 30)
+    """
+    return weight * (1 + reps / 30)
+
+# =========================================================
 # 🔁 HELPERS
 # =========================================================
 
@@ -124,22 +140,17 @@ def muscle_balance(df):
     return {k: round(v / total * 100, 1) for k, v in balance.items()}
 
 # =========================================================
-# 🧠 PROGRESSION (SAFE)
+# 🧠 PROGRESSION (SAFE + FIXED)
 # =========================================================
-
-
 
 def progression(avg_reps, rpe, weight):
 
     est_1rm = estimate_1rm(weight, avg_reps)
 
-    # fatigue protection
     if rpe >= 9:
         return round(weight * 0.97, 1), "🔴 fatigue → deload"
 
-    # strength-based progression (Epley-aware)
     if avg_reps >= 12 and rpe <= 8:
-        # small controlled increase
         return round(weight * 1.02, 1), f"🟢 progress (est 1RM {est_1rm:.1f}kg)"
 
     if avg_reps < 8:
@@ -342,8 +353,7 @@ elif page == "AI Coach":
 
         st.info(f"Volume: {last7['volume'].sum():.0f}")
 
-        bal = muscle_balance(df)
-        st.json(bal)
+        st.json(muscle_balance(df))
 
         if is_deload_week(df):
             st.warning("🔴 Deload week active")
