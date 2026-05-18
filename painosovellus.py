@@ -3,9 +3,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 from supabase import create_client
 
-# =========================================================
-# 🔐 SECRETS
-# =========================================================
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -13,9 +10,6 @@ APP_PASSWORD = st.secrets["APP_PASSWORD"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# =========================================================
-# 🔐 LOGIN
-# =========================================================
 
 def check_password():
     if "auth" not in st.session_state:
@@ -24,10 +18,14 @@ def check_password():
     if st.session_state.auth:
         return True
 
-    st.title("🔐 Login")
-    pw = st.text_input("Password", type="password")
+    st.title("Login")
 
-    if st.button("Login"):
+    # IMPORTANT: form enables Enter-to-submit
+    with st.form("login_form"):
+        pw = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")  # <-- Enter triggers this
+
+    if submitted:
         if pw == APP_PASSWORD:
             st.session_state.auth = True
             st.rerun()
@@ -35,9 +33,6 @@ def check_password():
             st.error("Wrong password")
 
     return False
-
-if not check_password():
-    st.stop()
 
 # =========================================================
 # 💾 DATABASE
@@ -53,47 +48,44 @@ def save_data(session):
 data = load_data()
 
 # =========================================================
-# 🧠 TRAINING CONFIG (EXPANDED)
+# 🧠 CONFIG (EXPANDED)
 # =========================================================
 
 UPPER = [
-    "Assisted Pull-Up",
-    "Assisted Dip",
-    "Row",
-    "Incline Press",
-    "Shoulder Press",
-    "Bicep Curl",
-    "Abs"
+    "Assisted pull-Up",
+    "Assisted dip",
+    "Chest-supported machine row",
+    "Incline dumbbell press",
+    "Shoulder dumbbell press",
+    "Bicep curl seated",
+    "Machine abs"
 ]
 
 LOWER = [
-    "Squat",
-    "RDL",
-    "Bulgarian Split Squat",
-    "Leg Extension",
-    "Hip Abduction",   # NEW
-    "Glute Bridge"     # NEW
+        "RDL",
+    "Back-squat full ROM",
+    "Bulgarian split squat",
+    "Leg extension",
+    "Hip abduction",
 ]
 
 ASSISTED = ["Assisted Pull-Up", "Assisted Dip"]
 
 MUSCLE_MAP = {
-    "Squat": "legs",
+    "Back-squat full ROM": "legs",
     "RDL": "legs",
     "Bulgarian Split Squat": "legs",
     "Leg Extension": "legs",
     "Hip Abduction": "glutes",
-    "Glute Bridge": "glutes",
-    "Row": "back",
-    "Incline Press": "chest",
-    "Shoulder Press": "shoulders",
-    "Bicep Curl": "arms",
-    "Abs": "core",
+    "chest-supported machine row": "back",
+    "Incline dumbbell press": "chest",
+    "Shoulder dumbbell press": "shoulders",
+    "Bicep Curl seated": "arms",
+    "Machine Abs": "core",
     "Assisted Pull-Up": "back",
     "Assisted Dip": "chest"
 }
 
-# Female optimized hypertrophy range
 TARGET_MIN = 8
 TARGET_MAX = 15
 
@@ -106,16 +98,40 @@ def last_entry(ex):
     return ex_data[-1] if ex_data else None
 
 # =========================================================
-# 📈 PERIODIZATION (SIMPLE SMART SYSTEM)
+# 📈 PERIODIZATION
 # =========================================================
 
-def progression_logic(avg_reps, rpe, weight, last_weight):
+def week_number(df):
+    df["date"] = pd.to_datetime(df["date"])
+    return ((df["date"].max() - df["date"].min()).days // 7) + 1
+
+def is_deload_week(df):
+    return week_number(df) % 4 == 0
+
+# =========================================================
+# 📊 MUSCLE BALANCE
+# =========================================================
+
+def muscle_balance(df):
+    if df.empty:
+        return {}
+
+    balance = df.groupby("muscle")["volume"].sum().to_dict()
+    total = sum(balance.values()) or 1
+
+    return {k: round(v / total * 100, 1) for k, v in balance.items()}
+
+# =========================================================
+# 🧠 PROGRESSION (SAFE)
+# =========================================================
+
+def progression(avg_reps, rpe, weight):
 
     if rpe >= 9:
-        return round(weight * 0.95, 1), "🔴 deload (fatigue)"
+        return round(weight * 0.97, 1), "🔴 deload (fatigue)"
 
     if avg_reps >= TARGET_MAX and rpe <= 8:
-        return round(weight * 1.025, 1), "🟢 increase load"
+        return round(weight * 1.02, 1), "🟢 slow progression"
 
     if avg_reps < TARGET_MIN:
         return weight, "🟡 build reps"
@@ -123,32 +139,64 @@ def progression_logic(avg_reps, rpe, weight, last_weight):
     return weight, "⚪ maintain"
 
 # =========================================================
-# 📊 CALENDAR VIEW
+# 🤖 PROGRAM GENERATOR
 # =========================================================
 
-def calendar_view(df):
+def generate_program(df):
 
-    st.markdown("## 📅 Training Calendar")
+    balance = muscle_balance(df)
+
+    targets = {
+        "legs": 35,
+        "glutes": 25,
+        "back": 20,
+        "chest": 10,
+        "shoulders": 5,
+        "arms": 3,
+        "core": 2
+    }
+
+    output = []
+
+    for m, t in targets.items():
+        cur = balance.get(m, 0)
+
+        if cur < t:
+            output.append(f"⬆️ Increase {m}")
+        elif cur > t + 10:
+            output.append(f"⬇️ Reduce {m}")
+        else:
+            output.append(f"⚖️ Maintain {m}")
+
+    return output
+
+# =========================================================
+# 📅 CALENDAR
+# =========================================================
+
+def show_calendar(df):
 
     df["date"] = pd.to_datetime(df["date"])
     days = df.groupby("date")["exercise"].count().reset_index()
 
-    for _, row in days.iterrows():
-        st.write(f"📌 {row['date'].date()} → {row['exercise']} exercises")
+    st.markdown("## Calendar")
+
+    for _, r in days.iterrows():
+        st.write(f"📌 {r['date'].date()} → {r['exercise']} exercises")
 
 # =========================================================
 # ⚖️ BODY TRACKING
 # =========================================================
 
 def body_tracking():
-    st.markdown("## ⚖️ Body Tracking (Female Optimized)")
-    st.info("Recommended: 55kg / 166cm baseline reference")
+
+    st.markdown("## Body Tracking")
 
     weight = st.number_input("Bodyweight (kg)", 30.0, 120.0, 55.0)
     waist = st.number_input("Waist (cm)", 40.0, 120.0)
     hips = st.number_input("Hips (cm)", 60.0, 140.0)
 
-    if st.button("Save body metrics"):
+    if st.button("Save"):
         supabase.table("body_stats").insert({
             "date": datetime.today().strftime("%Y-%m-%d"),
             "weight": weight,
@@ -163,18 +211,18 @@ def body_tracking():
 # =========================================================
 
 st.set_page_config(layout="wide")
-st.title("🏋️ AI Gym Coach PRO")
+st.title("🏋️ Hypertrophy coach")
 
 page = st.sidebar.radio(
     "Menu",
-    ["🏋️ Train", "📊 Dashboard", "📅 Calendar", "⚖️ Body", "🤖 AI Coach"]
+    ["Train", "Dashboard", "Calendar", "Body", "AI Coach", "AI Program"]
 )
 
 # =========================================================
 # 🏋️ TRAIN
 # =========================================================
 
-if page == "🏋️ Train":
+if page == "Train":
 
     date = st.date_input("Date", value=datetime.today())
     split = st.radio("Split", ["Upper", "Lower"], horizontal=True)
@@ -188,11 +236,7 @@ if page == "🏋️ Train":
 
         with st.expander(ex):
 
-            sets = st.number_input(
-                "Sets", 1, 6,
-                value=last["sets"] if last else 3,
-                key=f"{ex}_sets"
-            )
+            sets = st.number_input("Sets", 1, 6, last["sets"] if last else 3, key=f"{ex}_sets")
 
             reps = []
             last_reps = last["reps_list"] if last else [10]*sets
@@ -201,9 +245,9 @@ if page == "🏋️ Train":
             for i in range(sets):
                 reps.append(
                     st.number_input(
-                        f"Set {i+1}",
+                        f"S{i+1}",
                         0, 30,
-                        value=last_reps[i] if i < len(last_reps) else 10,
+                        last_reps[i] if i < len(last_reps) else 10,
                         key=f"{ex}_rep_{i}"
                     )
                 )
@@ -213,16 +257,16 @@ if page == "🏋️ Train":
             weight = st.number_input(
                 "Weight",
                 0.0, 300.0,
-                value=last["weight"] if last else 20.0,
+                last["weight"] if last else 20.0,
                 key=f"{ex}_weight"
             )
 
             avg = sum(reps) / len(reps)
 
-            new_weight, verdict = progression_logic(avg, rpe, weight, last["weight"] if last else weight)
+            new_w, msg = progression(avg, rpe, weight)
 
-            st.info(verdict)
-            st.success(f"Next: {new_weight}")
+            st.info(msg)
+            st.success(f"Next weight: {new_w}")
 
             session.append({
                 "date": date.strftime("%Y-%m-%d"),
@@ -244,21 +288,15 @@ if page == "🏋️ Train":
 # 📊 DASHBOARD
 # =========================================================
 
-elif page == "📊 Dashboard":
+elif page == "Dashboard":
 
     df = pd.DataFrame(data)
 
     if not df.empty:
-
         df["date"] = pd.to_datetime(df["date"])
 
         st.line_chart(df.groupby("date")["volume"].sum())
         st.bar_chart(df.groupby("muscle")["volume"].sum())
-
-        ex = st.selectbox("Exercise", df["exercise"].unique())
-        ex_df = df[df["exercise"] == ex]
-
-        st.line_chart(ex_df.set_index("date")["weight"])
 
     else:
         st.write("No data")
@@ -267,38 +305,65 @@ elif page == "📊 Dashboard":
 # 📅 CALENDAR
 # =========================================================
 
-elif page == "📅 Calendar":
-
+elif page == "Calendar":
     df = pd.DataFrame(data)
-
     if not df.empty:
-        calendar_view(df)
-    else:
-        st.write("No sessions yet")
+        show_calendar(df)
 
 # =========================================================
 # ⚖️ BODY
 # =========================================================
 
-elif page == "⚖️ Body":
+elif page == "Body":
     body_tracking()
 
 # =========================================================
 # 🤖 AI COACH
 # =========================================================
 
-elif page == "🤖 AI Coach":
+elif page == "AI Coach":
 
     df = pd.DataFrame(data)
 
     if not df.empty:
-        st.markdown("## 🧠 Weekly Summary")
+
+        st.markdown("## Weekly AI Report")
 
         last7 = df[pd.to_datetime(df["date"]) > datetime.today() - timedelta(days=7)]
 
-        st.info(f"Total volume: {last7['volume'].sum():.0f}")
+        st.info(f"Volume: {last7['volume'].sum():.0f}")
 
-        st.info("Focus: progressive overload + glutes + posterior chain (female optimized)")
+        bal = muscle_balance(df)
+        st.json(bal)
+
+        if is_deload_week(df):
+            st.warning("🔴 Deload week active")
+
+    else:
+        st.write("No data")
+
+# =========================================================
+# 🧠 AI PROGRAM
+# =========================================================
+
+elif page == "AI Program":
+
+    df = pd.DataFrame(data)
+
+    if not df.empty:
+
+        st.markdown("## Auto Program")
+
+        if is_deload_week(df):
+            st.warning("Deload week → reduce weights 10–20%")
+
+        st.markdown("### Muscle balance")
+        st.json(muscle_balance(df))
+
+        st.markdown("### Adjustments")
+
+        for x in generate_program(df):
+            st.write(x)
 
     else:
         st.write("No data")
