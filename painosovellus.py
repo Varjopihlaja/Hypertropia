@@ -15,7 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # 🔐 LOGIN
 # =========================================================
 
-APP_PASSWORD = st.secrets.get("APP_PASSWORD", "1234")
+APP_PASSWORD = st.secrets("APP_PASSWORD")
 
 def check_password():
     if "authenticated" not in st.session_state:
