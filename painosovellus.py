@@ -52,36 +52,38 @@ data = load_data()
 # =========================================================
 
 UPPER = [
-    "Assisted pull-Up",
-    "Assisted dip",
-    "Chest-supported machine row",
-    "Incline dumbbell press",
-    "Shoulder dumbbell press",
-    "Bicep curl seated",
-    "Machine abs"
+    "Assisted Pull-Up",
+    "Assisted Dip",
+    "Chest-Supported Machine Row",
+    "Incline Dumbbell Press",
+    "Shoulder Dumbbell Press",
+    "Bicep Curl Seated",
+    "Machine Abs"
 ]
 
 LOWER = [
-        "RDL",
-    "Back-squat full ROM",
-    "Bulgarian split squat",
-    "Leg extension",
-    "Hip abduction",
+    "RDL",
+    "Back Squat Full ROM",
+    "Bulgarian Split Squat",
+    "Leg Extension",
+    "Hip Abduction"
 ]
 
 ASSISTED = ["Assisted Pull-Up", "Assisted Dip"]
 
 MUSCLE_MAP = {
-    "Back-squat full ROM": "legs",
+    "Back Squat Full ROM": "legs",
     "RDL": "legs",
     "Bulgarian Split Squat": "legs",
     "Leg Extension": "legs",
     "Hip Abduction": "glutes",
-    "chest-supported machine row": "back",
-    "Incline dumbbell press": "chest",
-    "Shoulder dumbbell press": "shoulders",
-    "Bicep Curl seated": "arms",
+
+    "Chest-Supported Machine Row": "back",
+    "Incline Dumbbell Press": "chest",
+    "Shoulder Dumbbell Press": "shoulders",
+    "Bicep Curl Seated": "arms",
     "Machine Abs": "core",
+
     "Assisted Pull-Up": "back",
     "Assisted Dip": "chest"
 }
@@ -125,15 +127,22 @@ def muscle_balance(df):
 # 🧠 PROGRESSION (SAFE)
 # =========================================================
 
+
+
 def progression(avg_reps, rpe, weight):
 
+    est_1rm = estimate_1rm(weight, avg_reps)
+
+    # fatigue protection
     if rpe >= 9:
-        return round(weight * 0.97, 1), "🔴 deload (fatigue)"
+        return round(weight * 0.97, 1), "🔴 fatigue → deload"
 
-    if avg_reps >= TARGET_MAX and rpe <= 8:
-        return round(weight * 1.02, 1), "🟢 slow progression"
+    # strength-based progression (Epley-aware)
+    if avg_reps >= 12 and rpe <= 8:
+        # small controlled increase
+        return round(weight * 1.02, 1), f"🟢 progress (est 1RM {est_1rm:.1f}kg)"
 
-    if avg_reps < TARGET_MIN:
+    if avg_reps < 8:
         return weight, "🟡 build reps"
 
     return weight, "⚪ maintain"
