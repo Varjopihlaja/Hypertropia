@@ -157,66 +157,73 @@ if page == "Train":
     exercises = UPPER if split == "Upper" else LOWER
     session = []
 
-    for ex in exercises:
+    st.markdown("### 🏋️ Training Session")
 
-        last = last_entry(ex)
+    # 3 exercises per row
+    rows = [exercises[i:i+3] for i in range(0, len(exercises), 3)]
 
-        with st.expander(ex):
+    for row in rows:
+        cols = st.columns(3)
 
-            sets = st.number_input(
-                "Sets",
-                0, 6,
-                last["sets"] if last else 3,
-                key=f"{ex}_sets"
-            )
+        for col, ex in zip(cols, row):
 
-            if sets == 0:
-                st.caption("Skipped")
-                continue
+            last = last_entry(ex)
 
-            reps = []
-            last_reps = last["reps_list"] if last else [10]*sets
+            with col:
+                st.markdown(f"### {ex}")
 
-            for i in range(sets):
-                reps.append(
-                    st.number_input(
-                        f"Set {i+1}",
-                        0, 30,
-                        last_reps[i] if i < len(last_reps) else 10,
-                        key=f"{ex}_rep_{i}"
-                    )
+                sets = st.number_input(
+                    "Sets",
+                    0, 6,
+                    last["sets"] if last else 3,
+                    key=f"{ex}_sets"
                 )
 
-            rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_rpe")
+                if sets == 0:
+                    st.caption("Skipped")
+                    continue
 
-            weight = st.number_input(
-                "Weight",
-                0.0, 300.0,
-                last["weight"] if last else 20.0,
-                key=f"{ex}_weight"
-            )
+                reps = []
+                last_reps = last["reps_list"] if last else [10]*sets
 
-            new_w, msg = progression(reps, rpe, weight, ex)
+                # compact inline reps (no huge spacing)
+                rep_line = st.columns(sets if sets <= 4 else 4)
 
-            st.info(msg)
-            st.success(f"Next: {new_w} kg")
+                for i in range(sets):
+                    reps.append(
+                        st.number_input(
+                            f"S{i+1}",
+                            0, 30,
+                            last_reps[i] if i < len(last_reps) else 10,
+                            key=f"{ex}_rep_{i}"
+                        )
+                    )
 
-            session.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "exercise": ex,
-                "muscle": MUSCLE_MAP[ex],
-                "sets": sets,
-                "reps_list": reps,
-                "avg_reps": sum(reps)/len(reps),
-                "rpe": rpe,
-                "weight": weight,
-                "volume": sum(reps) * weight
-            })
+                rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_rpe")
 
-    if st.button("Save Workout"):
-        save_data(session)
-        st.success("Saved")
+                weight = st.number_input(
+                    "Weight",
+                    0.0, 300.0,
+                    last["weight"] if last else 20.0,
+                    key=f"{ex}_weight"
+                )
 
+                new_w, msg = progression(reps, rpe, weight, ex)
+
+                st.caption(msg)
+                st.success(f"{new_w} kg")
+
+                session.append({
+                    "date": date.strftime("%Y-%m-%d"),
+                    "exercise": ex,
+                    "muscle": MUSCLE_MAP[ex],
+                    "sets": sets,
+                    "reps_list": reps,
+                    "avg_reps": sum(reps)/len(reps),
+                    "rpe": rpe,
+                    "weight": weight,
+                    "volume": sum(reps) * weight
+                })
 # =========================================================
 # 📊 DASHBOARD
 # =========================================================
