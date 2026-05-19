@@ -92,8 +92,6 @@ def session_summary(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    df = df.dropna(subset=["date"])
-
     return df.groupby("date").agg({
         "volume": "sum",
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
@@ -103,7 +101,8 @@ def session_summary(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        meta[r["date"].date()] = {
+        d = r["date"].date()
+        meta[d] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -209,7 +208,7 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# UI
+# PAGE NAV
 # =========================================================
 
 st.title("Training System")
@@ -220,7 +219,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (unchanged)
+# TRAIN
 # =========================================================
 
 if page == "Train":
@@ -230,8 +229,6 @@ if page == "Train":
 
     exercises = LOWER if split == "Lower" else UPPER
     session = []
-
-    st.subheader("Training Session")
 
     cols = st.columns(5)
 
@@ -299,7 +296,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (FIXED MONTH GRID + WEEK ALIGNMENT)
+# DASHBOARD (FIXED CALENDAR)
 # =========================================================
 
 elif page == "Dashboard":
@@ -311,8 +308,6 @@ elif page == "Dashboard":
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
-
     summary = session_summary(df)
     meta = day_meta(summary)
 
@@ -321,7 +316,7 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =====================================================
-    # FILTER RANGE
+    # RANGE
     # =====================================================
 
     if view == "1 Week":
@@ -336,55 +331,74 @@ elif page == "Dashboard":
         start = df["date"].min().date()
         end = df["date"].max().date()
 
-    # =====================================================
-    # CREATE DATE RANGE
-    # =====================================================
-
-    full_range = pd.date_range(start, end)
+    dates = pd.date_range(start, end)
 
     # =====================================================
-    # ALIGN TO MONDAY START (IMPORTANT FIX)
+    # MONDAY ALIGNMENT GRID
     # =====================================================
 
-    first_monday = full_range[0] - pd.Timedelta(days=full_range[0].weekday())
-    last_sunday = full_range[-1] + pd.Timedelta(days=(6 - full_range[-1].weekday()))
+    grid_start = dates[0] - pd.Timedelta(days=dates[0].weekday())
+    grid_end = dates[-1] + pd.Timedelta(days=(6 - dates[-1].weekday()))
 
-    grid_range = pd.date_range(first_monday, last_sunday)
+    grid = pd.date_range(grid_start, grid_end)
 
     cols = st.columns(7)
 
     # =====================================================
-    # CALENDAR GRID
+    # TITLE
     # =====================================================
 
-    for i, d in enumerate(grid_range):
+    if view == "1 Month":
+        st.subheader(today.strftime("%B %Y"))
+    elif view == "1 Week":
+        st.subheader("Last 7 Days")
+    else:
+        st.subheader("All Logged Data")
+
+    # =====================================================
+    # GRID
+    # =====================================================
+
+    for i, d in enumerate(grid):
 
         col = cols[i % 7]
+        day = d.date()
 
-        is_current_month = d.date() >= start and d.date() <= end
+        in_month = (view == "1 Month" and day.month == start.month)
+        in_range = start <= day <= end
 
         weekday = d.strftime("%a")
 
-        if d.date() in meta:
+        if day in meta and in_range:
 
-            vol = meta[d.date()]["volume"]
-            muscle = meta[d.date()]["muscle"]
+            vol = meta[day]["volume"]
+            muscle = meta[day]["muscle"]
+
             label = "Lower" if muscle == "legs" else "Upper"
 
-            if view == "1 Month":
-                style = "background-color:white;border:1px solid #ccc;"
+            # keep color coding
+            if label == "Lower":
+                bg = "#dbeafe"
+                border = "#3b82f6"
             else:
-                style = "background-color:#f0f0f0;"
+                bg = "#dcfce7"
+                border = "#22c55e"
+
+            # fade outside month
+            if view == "1 Month" and not in_month:
+                bg = "#f3f4f6"
+                border = "#e5e7eb"
 
             box = f"""
             <div style="
-                {style}
+                background-color:{bg};
+                border:1px solid {border};
                 padding:10px;
-                border-radius:8px;
+                border-radius:10px;
                 min-height:90px;
                 text-align:center;
             ">
-                <div><b>{weekday} {d.day}</b></div>
+                <div><b>{weekday} {day.day}</b></div>
                 <div>{label}</div>
                 <div>{round(vol,1)} kg</div>
             </div>
@@ -392,28 +406,27 @@ elif page == "Dashboard":
 
         else:
 
-            if view == "1 Month":
-                style = "background-color:white;border:1px solid #ddd;"
-            else:
-                style = "background-color:#fafafa;"
-
             box = f"""
             <div style="
-                {style}
+                background-color:#ffffff;
+                border:1px solid #e5e7eb;
                 padding:10px;
-                border-radius:8px;
+                border-radius:10px;
                 min-height:90px;
                 text-align:center;
                 opacity:0.5;
             ">
-                <div><b>{weekday} {d.day}</b></div>
+                <div><b>{weekday} {day.day}</b></div>
             </div>
             """
 
         col.markdown(box, unsafe_allow_html=True)
 
+    st.divider()
+    st.line_chart(summary.set_index("date")["volume"])
+
 # =========================================================
-# PR TRACKING / HEATMAP / PLANNER (UNCHANGED)
+# PR TRACKING
 # =========================================================
 
 elif page == "PR Tracking":
@@ -430,6 +443,9 @@ elif page == "PR Tracking":
     else:
         st.write("No data")
 
+# =========================================================
+# HEATMAP
+# =========================================================
 
 elif page == "Heatmap":
 
@@ -442,6 +458,9 @@ elif page == "Heatmap":
     else:
         st.write("No data")
 
+# =========================================================
+# PLANNER
+# =========================================================
 
 elif page == "Planner":
 
