@@ -309,6 +309,18 @@ elif page == "Dashboard":
     summary = session_summary(df)
     meta = day_meta(summary)
 
+    # =====================================================
+    # MONTH SELECTOR (NEW)
+    # =====================================================
+
+    all_months = sorted(
+        df["date"].dropna().dt.to_period("M").unique()
+    )
+
+    month_options = ["None"] + [str(m) for m in all_months]
+
+    selected_month = st.selectbox("Select Month", month_options)
+
     view = st.radio(
         "View",
         ["1 Week", "1 Month", "Last 3 Months", "All"],
@@ -318,10 +330,16 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =====================================================
-    # RANGE LOGIC
+    # PRIORITY: SELECTED MONTH OVERRIDES VIEW
     # =====================================================
 
-    if view == "1 Week":
+    if selected_month != "None":
+        period = pd.Period(selected_month)
+        start = period.to_timestamp().date()
+        end = (period.to_timestamp() + pd.offsets.MonthEnd(1)).date()
+        title = period.strftime("%B %Y")
+
+    elif view == "1 Week":
         start = today - timedelta(days=6)
         end = today
         title = "Last 7 Days"
@@ -359,14 +377,14 @@ elif page == "Dashboard":
 
     cols = st.columns(7)
 
-    # Header row
+    # Header
     for i in range(7):
         cols[i].markdown(f"**{weekdays[i]}**")
 
     st.write("")
 
     # =====================================================
-    # RENDER GRID
+    # GRID RENDER
     # =====================================================
 
     for i, d in enumerate(grid):
@@ -379,10 +397,9 @@ elif page == "Dashboard":
 
         box_date = f"{day.day}/{day.month}"
 
-        # =================================================
-        # CASE 1: HAS TRAINING DATA
-        # =================================================
-
+        # ---------------------------
+        # TRAINING DAY
+        # ---------------------------
         if day in meta and in_range:
 
             vol = meta[day]["volume"]
@@ -390,18 +407,12 @@ elif page == "Dashboard":
 
             label = "Lower" if muscle == "legs" else "Upper"
 
-            if label == "Lower":
-                bg = "#3b82f6"   # blue
-            else:
-                bg = "#22c55e"   # green
-
-            text_color = "white"
-            border = "transparent"
+            bg = "#3b82f6" if label == "Lower" else "#22c55e"
 
             box = f"""
             <div style="
                 background-color:{bg};
-                color:{text_color};
+                color:white;
                 border-radius:12px;
                 padding:10px;
                 min-height:110px;
@@ -414,16 +425,14 @@ elif page == "Dashboard":
             </div>
             """
 
-        # =================================================
-        # CASE 2: CURRENT MONTH BUT NO DATA (REST DAY)
-        # =================================================
-
+        # ---------------------------
+        # REST DAY (CURRENT MONTH)
+        # ---------------------------
         elif in_range and in_current_month:
 
             box = f"""
             <div style="
                 background-color:#d1d5db;
-                color:#111827;
                 border-radius:12px;
                 padding:10px;
                 min-height:110px;
@@ -435,10 +444,9 @@ elif page == "Dashboard":
             </div>
             """
 
-        # =================================================
-        # CASE 3: PADDING DAYS (OUTSIDE MONTH)
-        # =================================================
-
+        # ---------------------------
+        # PADDING DAYS (OUTSIDE MONTH)
+        # ---------------------------
         else:
 
             box = f"""
