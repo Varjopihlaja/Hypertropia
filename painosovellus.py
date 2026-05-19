@@ -140,8 +140,11 @@ def progression(reps, rpe, weight, ex):
 # UI
 # =========================================================
 
-st.set_page_config(layout="centered")
-st.title("🏋️ Hypertrophy Coach")
+st.set_page_config(
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+st.title("Hypertrophy Coach")
 
 page = st.sidebar.radio("Menu", ["Train", "Dashboard"])
 
@@ -157,20 +160,27 @@ if page == "Train":
     exercises = UPPER if split == "Upper" else LOWER
     session = []
 
-    st.markdown("### 🏋️ Training Session")
+    st.markdown("### Training Session")
 
-    # 3 exercises per row
+    # use FULL width spacing control
     rows = [exercises[i:i+3] for i in range(0, len(exercises), 3)]
 
     for row in rows:
-        cols = st.columns(3)
+
+        # 👇 KEY FIX: use equal expansion instead of default columns
+        cols = st.columns(3, gap="large")
 
         for col, ex in zip(cols, row):
 
             last = last_entry(ex)
 
             with col:
-                st.markdown(f"### {ex}")
+
+                st.markdown(
+                    f"<div style='padding:10px;border:1px solid #ddd;border-radius:10px'>"
+                    f"<h4>{ex}</h4>",
+                    unsafe_allow_html=True
+                )
 
                 sets = st.number_input(
                     "Sets",
@@ -181,18 +191,19 @@ if page == "Train":
 
                 if sets == 0:
                     st.caption("Skipped")
+                    st.markdown("</div>", unsafe_allow_html=True)
                     continue
 
                 reps = []
                 last_reps = last["reps_list"] if last else [10]*sets
 
-                # compact inline reps (no huge spacing)
-                rep_line = st.columns(sets if sets <= 4 else 4)
+                # FIX: spread reps better
+                rep_cols = st.columns(min(sets, 3))
 
                 for i in range(sets):
                     reps.append(
                         st.number_input(
-                            f"S{i+1}",
+                            f"Set {i+1}",
                             0, 30,
                             last_reps[i] if i < len(last_reps) else 10,
                             key=f"{ex}_rep_{i}"
@@ -212,6 +223,8 @@ if page == "Train":
 
                 st.caption(msg)
                 st.success(f"{new_w} kg")
+
+                st.markdown("</div>", unsafe_allow_html=True)
 
                 session.append({
                     "date": date.strftime("%Y-%m-%d"),
