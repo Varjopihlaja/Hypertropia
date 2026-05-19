@@ -107,36 +107,8 @@ def day_meta(summary_df):
         }
     return meta
 
-def build_cycles(df):
-    """
-    Detects Lower / Upper / Rest repeating structure
-    based on chronological order of sessions.
-    """
-
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.sort_values("date")
-
-    # Assign cycle pattern index
-    pattern = ["Lower", "Upper", "Rest"]
-
-    cycle_ids = []
-    cycle_index = 0
-
-    for i in range(len(df)):
-        cycle_ids.append(cycle_index)
-        if (i + 1) % 3 == 0:
-            cycle_index += 1
-
-    df["cycle"] = cycle_ids
-    df["cycle_phase"] = [pattern[i % 3] for i in range(len(df))]
-
-    return df
-
-cycle_df = build_cycles(df)
-
 # =========================================================
-# FORECAST (REAL vs NEXT WEEK)
+# FORECAST
 # =========================================================
 
 def forecast(series_df, x_col, y_col):
@@ -366,34 +338,33 @@ elif page == "Dashboard":
                 <div>Rest</div>
             </div>"""
 
-        col.markdown(box,unsafe_allow_html=True)
+        col.markdown(box, unsafe_allow_html=True)
 
     st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
-# 1RM
+# 1RM TRACKING
 # =========================================================
 
 elif page == "1RM Tracking":
 
-    df["est"] = df["weight"]*(1+df["avg_reps"]/30)
+    df["est"] = df["weight"] * (1 + df["avg_reps"] / 30)
 
-    left,right = st.columns(2)
+    left, right = st.columns(2)
 
     with left:
         st.subheader("Upper")
         for ex in UPPER:
-            d=df[df["exercise"]==ex]
+            d = df[df["exercise"] == ex]
             if not d.empty:
-                st.write(ex, round(d["est"].max(),1))
+                st.write(ex, round(d["est"].max(), 1))
 
     with right:
         st.subheader("Lower")
         for ex in LOWER:
-            d=df[df["exercise"]==ex]
+            d = df[df["exercise"] == ex]
             if not d.empty:
-                st.write(ex, round(d["est"].max(),1))
-
+                st.write(ex, round(d["est"].max(), 1))
 
 # =========================================================
 # MUSCLE LOAD
@@ -405,145 +376,63 @@ elif page == "Muscle Load":
 
     st.title("Muscle Load")
 
-    # -------------------------------------------------
-    # PREP
-    # -------------------------------------------------
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    df["month"] = df["date"].dt.to_period("M").astype(str)
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
-    # -------------------------------------------------
-    # EXERCISE → MUSCLE MAP
-    # -------------------------------------------------
     EX_MAP = {
-        "Back Squat": ["quads", "glutes", "core"],
-        "RDL": ["hamstrings", "glutes", "back"],
-        "Bulgarian Split Squat": ["quads", "glutes"],
+        "Back Squat": ["quads","glutes","core"],
+        "RDL": ["hamstrings","glutes","back"],
+        "Bulgarian Split Squat": ["quads","glutes"],
         "Leg Extension": ["quads"],
         "Hip Abduction": ["glutes"],
-        "Assisted Pull-Up": ["back", "biceps"],
-        "Assisted Dip": ["chest", "triceps", "shoulders"],
-        "Chest Supported Machine Row": ["back", "biceps"],
-        "Dumbbell Shoulder Press": ["shoulders", "triceps"],
+        "Assisted Pull-Up": ["back","biceps"],
+        "Assisted Dip": ["chest","triceps","shoulders"],
+        "Chest Supported Machine Row": ["back","biceps"],
+        "Dumbbell Shoulder Press": ["shoulders","triceps"],
         "Seated Bicep Curl": ["biceps"],
-        "Dumbbell Incline Press": ["chest", "shoulders", "triceps"],
+        "Dumbbell Incline Press": ["chest","shoulders","triceps"],
         "Machine Abs": ["core"]
     }
 
     ranges = {
-        "chest": (10, 20),
-        "back": (12, 20),
-        "quads": (10, 18),
-        "hamstrings": (8, 16),
-        "shoulders": (8, 16),
-        "biceps": (6, 14),
-        "triceps": (6, 14),
-        "glutes": (8, 16),
-        "core": (8, 12)
+        "chest": (10,20),
+        "back": (12,20),
+        "quads": (10,18),
+        "hamstrings": (8,16),
+        "shoulders": (8,16),
+        "biceps": (6,14),
+        "triceps": (6,14),
+        "glutes": (8,16),
+        "core": (8,12)
     }
 
-    def build_df(input_df):
+    def build_df(in_df):
         rows = []
-        for _, r in input_df.iterrows():
+        for _, r in in_df.iterrows():
             muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
-            split_sets = r["sets"] / len(muscles)
+            split = r["sets"] / len(muscles)
             for m in muscles:
-                rows.append({"muscle": m, "sets": split_sets})
+                rows.append({"muscle": m, "sets": split})
         return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
-    # =========================================================
-    # WEEK VIEW
-    # =========================================================
     if view == "Week":
 
-        st.subheader("Weekly Load")
-
         weeks = sorted(df["week"].dropna().unique())
-        if len(weeks) == 0:
-            st.write("No data")
-            st.stop()
-
-        selected_week = st.selectbox(
-            "Select week",
-            weeks,
-            format_func=lambda x: x.strftime("%d.%m.%Y")
-        )
+        selected_week = st.selectbox("Select week", weeks, format_func=lambda x: x.strftime("%d.%m.%Y"))
 
         week_df = df[df["week"] == selected_week]
         plot_df = build_df(week_df)
+        plot_df = plot_df[plot_df["muscle"].isin(ranges)]
 
-        plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
-
-        if plot_df.empty:
-            st.write("No data")
-            st.stop()
-
-        plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
-        plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
-
-        def status(row):
-            if row["sets"] < row["min"]:
-                return "below"
-            elif row["sets"] > row["max"]:
-                return "above"
-            return "optimal"
-
-        plot_df["status"] = plot_df.apply(status, axis=1)
-
-        base = alt.Chart(plot_df)
-
-        bars = base.mark_bar(color="#93c5fd").encode(
-            x=alt.X("muscle:N"),
-            y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
-            color=alt.Color(
-                "status:N",
-                scale=alt.Scale(
-                    domain=["below", "optimal", "above"],
-                    range=["#f59e0b", "#22c55e", "#ef4444"]
-                )
-            ),
-            tooltip=["muscle", "sets", "min", "max", "status"]
-        )
-
-        # ✅ CORRECT RANGE (true interval, fixed scaling)
-        range_bar = base.mark_bar(
-            color="black",
-            opacity=0.25
-        ).encode(
-            x="muscle:N",
-            y=alt.Y("min:Q"),
-            y2="max:Q"
-        )
-
-        st.altair_chart(bars + range_bar, use_container_width=True)
-
-        st.markdown("""
-**Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
-""")
-
-    # =========================================================
-    # MONTH VIEW (FIXED SCALING)
-    # =========================================================
     else:
 
-        st.subheader("Monthly Calendar View")
-
-        months = sorted(df["month"].dropna().unique())
-        if len(months) == 0:
-            st.write("No data")
-            st.stop()
-
+        months = sorted(df["date"].dt.to_period("M").astype(str).unique())
         selected_month = st.selectbox("Select month", months)
 
-        month_df = df[df["month"] == selected_month].copy()
-        month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
+        month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month]
         month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
-        if month_df.empty:
-            st.write("No data")
-            st.stop()
 
         week_blocks = []
         for w in sorted(month_df["week"].unique()):
@@ -551,74 +440,61 @@ elif page == "Muscle Load":
             wk["week"] = w
             week_blocks.append(wk)
 
-        cal_df = pd.concat(week_blocks)
-        cal_df = cal_df[cal_df["muscle"].isin(ranges.keys())]
+        plot_df = pd.concat(week_blocks)
+        plot_df = plot_df[plot_df["muscle"].isin(ranges)]
 
-        cal_df["min"] = cal_df["muscle"].map(lambda m: ranges[m][0])
-        cal_df["max"] = cal_df["muscle"].map(lambda m: ranges[m][1])
+    if plot_df.empty:
+        st.stop()
 
-        def status(row):
-            if row["sets"] < row["min"]:
-                return "below"
-            elif row["sets"] > row["max"]:
-                return "above"
-            return "optimal"
+    plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
+    plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
 
-        cal_df["status"] = cal_df.apply(status, axis=1)
+    def status(row):
+        if row["sets"] < row["min"]:
+            return "below"
+        elif row["sets"] > row["max"]:
+            return "above"
+        return "optimal"
 
-        base = alt.Chart(cal_df)
+    plot_df["status"] = plot_df.apply(status, axis=1)
 
-        bars = base.mark_bar(color="#93c5fd").encode(
-            x=alt.X("muscle:N"),
-            y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
-            color="status:N",
-            tooltip=["week", "muscle", "sets", "min", "max", "status"]
-        )
+    color_scale = alt.Scale(
+        domain=["below","optimal","above"],
+        range=["#f59e0b","#22c55e","#ef4444"]
+    )
 
-        # ✅ FIXED scaling range bar
-        range_bar = base.mark_bar(
-            color="black",
-            opacity=0.25
-        ).encode(
-            x="muscle:N",
-            y="min:Q",
-            y2="max:Q"
-        )
+    base = alt.Chart(plot_df)
 
-        st.altair_chart(bars + range_bar, use_container_width=True)
+    bars = base.mark_bar().encode(
+        x="muscle:N",
+        y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
+        color=alt.Color("status:N", scale=color_scale),
+        tooltip=["muscle","sets","min","max","status"]
+    )
 
-        st.markdown("""
-**Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
-""")
+    range_bar = base.mark_bar(
+        color="black",
+        opacity=0.25
+    ).encode(
+        x="muscle:N",
+        y="min:Q",
+        y2="max:Q"
+    )
+
+    st.altair_chart(bars + range_bar, use_container_width=True)
 
 # =========================================================
-# FATIGUE PLANNER
+# FATIGUE + PROGRESSION (unchanged)
 # =========================================================
 
 elif page == "Fatigue Planner":
-
     st.title("Fatigue Curves with Forecast")
 
-    st.markdown("""
-    ### What this shows
-    - Solid line = actual weekly training load (fatigue)
-    - Dotted line = projected next 7 days trend
-    - Used to detect overreaching or undertraining
-    """)
-
     weekly = weekly_fatigue(df)
-
     if weekly.empty:
-        st.write("No data")
         st.stop()
 
-    left,right = st.columns(2)
-
-    for col, muscle_filter, title in [
-        (left, "upper", "Upper Body Fatigue"),
-        (right, "lower", "Lower Body Fatigue")
-    ]:
-        pass
+    left, right = st.columns(2)
 
     upper = weekly[weekly["muscle"] != "legs"].groupby("week")["volume"].sum().reset_index()
     lower = weekly[weekly["muscle"] == "legs"].groupby("week")["volume"].sum().reset_index()
@@ -638,37 +514,21 @@ elif page == "Fatigue Planner":
         if fut_l is not None:
             st.line_chart(fut_l.set_index("week")["volume"])
 
-# =========================================================
-# PROGRESSION
-# =========================================================
-
 elif page == "Progression":
-
     st.title("Strength Progression vs Forecast")
 
     weekly = weekly_exercise_volume(df)
-
     if weekly.empty:
-        st.write("No data")
         st.stop()
 
     split = st.radio("View", ["Upper","Lower"], horizontal=True)
     exercises = UPPER if split=="Upper" else LOWER
 
     ex = st.selectbox("Exercise", exercises)
-
     d = weekly[weekly["exercise"]==ex].sort_values("week")
-
-    st.markdown("""
-    ### What this shows
-    - Blue = actual progression
-    - Orange = predicted next trend
-    - Helps evaluate overload efficiency
-    """)
 
     hist, future = forecast(d, "week", "volume")
 
     st.line_chart(hist.set_index("week")["volume"])
-
     if future is not None:
         st.line_chart(future.set_index("week")["volume"])
