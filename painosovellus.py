@@ -169,7 +169,15 @@ def snap(weight, step):
     return float(round(round(weight / step) * step, 1))
 
 # =========================================================
-# PROGRESSION
+# ASSISTED LOGIC FIX
+# =========================================================
+
+def is_assisted(ex):
+    ex = ex.lower()
+    return "assisted pull-up" in ex or "assisted dip" in ex
+
+# =========================================================
+# PROGRESSION (FIXED)
 # =========================================================
 
 def progression(ex, reps, rpe, weight):
@@ -177,6 +185,29 @@ def progression(ex, reps, rpe, weight):
     avg = sum(reps) / max(len(reps), 1)
     step = get_step(ex, weight)
 
+    assisted = is_assisted(ex)
+
+    # =====================================================
+    # ASSISTED MOVEMENTS (INVERTED LOGIC)
+    # =====================================================
+    if assisted:
+
+        # fatigue → increase assistance (more weight)
+        if rpe >= 9:
+            return snap(weight + step, step), "fatigue drop (more assistance)"
+
+        # progress → reduce assistance (less weight)
+        if avg >= 12 and rpe <= 8:
+            return snap(weight - step, step), "progress (less assistance)"
+
+        if avg < 8:
+            return weight, "build reps"
+
+        return weight, "maintain"
+
+    # =====================================================
+    # NORMAL MOVEMENTS
+    # =====================================================
     if rpe >= 9:
         return snap(weight * 0.97, step), "fatigue drop"
 
@@ -207,7 +238,7 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# PAGE NAV
+# UI
 # =========================================================
 
 st.title("Training System")
@@ -218,10 +249,11 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (UNCHANGED)
+# TRAIN
 # =========================================================
 
 if page == "Train":
+
     date = st.date_input("Date", datetime.today())
     split = st.radio("Split", ["Lower", "Upper"], horizontal=True)
 
@@ -294,7 +326,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (NEW STRUCTURED CALENDAR)
+# DASHBOARD
 # =========================================================
 
 elif page == "Dashboard":
@@ -309,61 +341,25 @@ elif page == "Dashboard":
     summary = session_summary(df)
     meta = day_meta(summary)
 
-    # =====================================================
-    # MONTH SELECTOR (NEW)
-    # =====================================================
-
-    all_months = sorted(
-        df["date"].dropna().dt.to_period("M").unique()
-    )
-
-    month_options = ["None"] + [str(m) for m in all_months]
-
-    selected_month = st.selectbox("Select Month", month_options)
-
-    view = st.radio(
-        "View",
-        ["1 Week", "1 Month", "Last 3 Months", "All"],
-        horizontal=True
-    )
+    view = st.radio("View", ["1 Week", "1 Month", "Last 3 Months", "All"], horizontal=True)
 
     today = datetime.today().date()
 
-    # =====================================================
-    # PRIORITY: SELECTED MONTH OVERRIDES VIEW
-    # =====================================================
-
-    if selected_month != "None":
-        period = pd.Period(selected_month)
-        start = period.to_timestamp().date()
-        end = (period.to_timestamp() + pd.offsets.MonthEnd(1)).date()
-        title = period.strftime("%B %Y")
-
-    elif view == "1 Week":
+    if view == "1 Week":
         start = today - timedelta(days=6)
         end = today
-        title = "Last 7 Days"
 
     elif view == "1 Month":
         start = today.replace(day=1)
         end = (start + pd.offsets.MonthEnd(1)).date()
-        title = today.strftime("%B %Y")
 
     elif view == "Last 3 Months":
         start = (today.replace(day=1) - pd.DateOffset(months=2)).date()
-        end = (today + pd.offsets.MonthEnd(0)).date()
-        title = "Last 3 Months"
+        end = today
 
     else:
         start = df["date"].min().date()
         end = df["date"].max().date()
-        title = "All Logged Data"
-
-    st.subheader(title)
-
-    # =====================================================
-    # GRID ALIGNMENT (MONDAY START)
-    # =====================================================
 
     grid_start = start - timedelta(days=start.weekday())
     grid_end = end + timedelta(days=(6 - end.weekday()))
@@ -377,15 +373,10 @@ elif page == "Dashboard":
 
     cols = st.columns(7)
 
-    # Header
     for i in range(7):
         cols[i].markdown(f"**{weekdays[i]}**")
 
     st.write("")
-
-    # =====================================================
-    # GRID RENDER
-    # =====================================================
 
     for i, d in enumerate(grid):
 
@@ -393,13 +384,7 @@ elif page == "Dashboard":
         day = d.date()
 
         in_range = start <= day <= end
-        in_current_month = (day.month == start.month)
 
-        box_date = f"{day.day}/{day.month}"
-
-        # ---------------------------
-        # TRAINING DAY
-        # ---------------------------
         if day in meta and in_range:
 
             vol = meta[day]["volume"]
@@ -418,56 +403,31 @@ elif page == "Dashboard":
                 min-height:110px;
                 text-align:center;
             ">
-                <div style="font-size:12px;">{box_date}</div>
                 <div style="font-size:28px; font-weight:700;">{day.day}</div>
                 <div style="font-size:13px;">{label}</div>
                 <div style="font-size:13px;">{round(vol,1)} kg</div>
             </div>
             """
 
-        # ---------------------------
-        # REST DAY (CURRENT MONTH)
-        # ---------------------------
-        elif in_range and in_current_month:
-
-            box = f"""
-            <div style="
-                background-color:#d1d5db;
-                border-radius:12px;
-                padding:10px;
-                min-height:110px;
-                text-align:center;
-            ">
-                <div style="font-size:12px;">{box_date}</div>
-                <div style="font-size:28px; font-weight:700;">{day.day}</div>
-                <div style="font-size:13px;">Rest / No Data</div>
-            </div>
-            """
-
-        # ---------------------------
-        # PADDING DAYS (OUTSIDE MONTH)
-        # ---------------------------
         else:
 
             box = f"""
             <div style="
-                background-color:#ffffff;
-                border:1px solid #d1d5db;
+                background-color:#e5e7eb;
                 border-radius:12px;
                 padding:10px;
                 min-height:110px;
                 text-align:center;
-                color:#9ca3af;
+                color:#6b7280;
             ">
-                <div style="font-size:12px;">{box_date}</div>
                 <div style="font-size:28px; font-weight:700;">{day.day}</div>
             </div>
             """
 
         col.markdown(box, unsafe_allow_html=True)
 
-    st.divider()
     st.line_chart(summary.set_index("date")["volume"])
+
 # =========================================================
 # PR TRACKING
 # =========================================================
