@@ -448,57 +448,58 @@ elif page == "Muscle Load":
     plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
     plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
 
-# -------------------------------------------------
-# Status classification (inside / below / above range)
-# -------------------------------------------------
-def status(row):
-    if row["sets"] < row["min"]:
-        return "below"
-    elif row["sets"] > row["max"]:
-        return "above"
-    return "optimal"
+    # -------------------------------------------------
+    # Status classification
+    # -------------------------------------------------
+    def status(row):
+        if row["sets"] < row["min"]:
+            return "below"
+        elif row["sets"] > row["max"]:
+            return "above"
+        return "optimal"
 
-plot_df["status"] = plot_df.apply(status, axis=1)
+    plot_df["status"] = plot_df.apply(status, axis=1)
 
-# -------------------------------------------------
-# Actual volume bars (color-coded)
-# -------------------------------------------------
-bars = alt.Chart(plot_df).mark_bar().encode(
-    x=alt.X("muscle:N",
+    # -------------------------------------------------
+    # Bars (color-coded)
+    # -------------------------------------------------
+    bars = alt.Chart(plot_df).mark_bar().encode(
+        x=alt.X(
+            "muscle:N",
             title=None,
-            axis=alt.Axis(labelFontSize=16, titleFontSize=16)),
-    y=alt.Y("sets:Q",
-            title="Weekly Sets",
-            axis=alt.Axis(labelFontSize=14, titleFontSize=16)),
-    color=alt.Color(
-        "status:N",
-        scale=alt.Scale(
-            domain=["below", "optimal", "above"],
-            range=["#f59e0b", "#22c55e", "#ef4444"]
+            axis=alt.Axis(labelFontSize=16, titleFontSize=16)
         ),
-        legend=alt.Legend(title="Status")
-    ),
-    tooltip=["muscle", "sets", "min", "max", "status"]
-)
+        y=alt.Y(
+            "sets:Q",
+            title="Weekly Sets",
+            axis=alt.Axis(labelFontSize=14, titleFontSize=16)
+        ),
+        color=alt.Color(
+            "status:N",
+            scale=alt.Scale(
+                domain=["below", "optimal", "above"],
+                range=["#f59e0b", "#22c55e", "#ef4444"]
+            ),
+            legend=alt.Legend(title="Status")
+        ),
+        tooltip=["muscle", "sets", "min", "max", "status"]
+    )
 
-# -------------------------------------------------
-# Target range (thick black min → max bar)
-# -------------------------------------------------
-range_bar = alt.Chart(plot_df).mark_rule(
-    color="black",
-    strokeWidth=6
-).encode(
-    x="muscle:N",
-    y="min:Q",
-    y2="max:Q"
-)
+    # -------------------------------------------------
+    # Target range (thick black min → max bar)
+    # -------------------------------------------------
+    range_bar = alt.Chart(plot_df).mark_rule(
+        color="black",
+        strokeWidth=6
+    ).encode(
+        x="muscle:N",
+        y="min:Q",
+        y2="max:Q"
+    )
 
-# -------------------------------------------------
-# Combine
-# -------------------------------------------------
-chart = bars + range_bar
+    chart = bars + range_bar
 
-st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
 
     # -------------------------------------------------
     # Compact reference
