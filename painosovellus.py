@@ -397,6 +397,9 @@ elif page == "1RM Tracking":
 
 # WEEKLY MUSCLE VOLUME
 # =========================================================
+# =========================================================
+# MUSCLE LOAD
+# =========================================================
 
 elif page == "Muscle Load":
 
@@ -411,28 +414,11 @@ elif page == "Muscle Load":
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
     df["month"] = df["date"].dt.to_period("M").astype(str)
 
+    view = st.radio("View", ["Week", "Month"], horizontal=True)
+
     # =================================================
-    # 1) WEEKLY VIEW (MONDAY-BASED)
+    # MUSCLE + RANGES
     # =================================================
-    st.subheader("Weekly Load")
-
-    weeks = sorted(df["week"].dropna().unique())
-
-    if len(weeks) == 0:
-        st.write("No data")
-        st.stop()
-
-    selected_week = st.selectbox(
-        "Select week (Mon start)",
-        weeks,
-        format_func=lambda x: x.strftime("%d.%m.%Y")
-    )
-
-    week_df = df[df["week"] == selected_week]
-
-    # -------------------------------------------------
-    # Muscle mapping
-    # -------------------------------------------------
     EX_MAP = {
         "Back Squat": ["quads", "glutes", "core"],
         "RDL": ["hamstrings", "glutes", "back"],
@@ -448,20 +434,6 @@ elif page == "Muscle Load":
         "Machine Abs": ["core"]
     }
 
-    def build_df(input_df):
-        rows = []
-        for _, r in input_df.iterrows():
-            muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
-            split_sets = r["sets"] / len(muscles)
-
-            for m in muscles:
-                rows.append({"muscle": m, "sets": split_sets})
-
-        out = pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
-        return out
-
-    plot_df = build_df(week_df)
-
     ranges = {
         "chest": (10, 20),
         "back": (12, 20),
@@ -474,9 +446,42 @@ elif page == "Muscle Load":
         "core": (8, 12)
     }
 
-    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+    def build_df(input_df):
+        rows = []
+        for _, r in input_df.iterrows():
+            muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
+            split_sets = r["sets"] / len(muscles)
+            for m in muscles:
+                rows.append({"muscle": m, "sets": split_sets})
+        return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
-    if not plot_df.empty:
+    # =================================================
+    # WEEK VIEW (MONDAY START)
+    # =================================================
+    if view == "Week":
+
+        st.subheader("Weekly Load")
+
+        weeks = sorted(df["week"].dropna().unique())
+
+        if len(weeks) == 0:
+            st.write("No data")
+            st.stop()
+
+        selected_week = st.selectbox(
+            "Select week",
+            weeks,
+            format_func=lambda x: x.strftime("%d.%m.%Y")
+        )
+
+        week_df = df[df["week"] == selected_week]
+        plot_df = build_df(week_df)
+        plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+
+        if plot_df.empty:
+            st.write("No data")
+            st.stop()
+
         plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
         plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
 
@@ -490,122 +495,8 @@ elif page == "Muscle Load":
         plot_df["status"] = plot_df.apply(status, axis=1)
 
         bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
-            x=alt.X("muscle:N", axis=alt.Axis(labelFontSize=14)),
-            y=alt.Y("sets:Q", title="Weekly Sets"),
-            color=alt.Color(
-                "status:N",
-                scale=alt.Scale(
-                    domain=["below", "optimal", "above"],
-                    range=["#f59e0b", "#22c55e", "#ef4444"]
-                )
-            ),
-            tooltip=["muscle", "sets", "min", "max", "status"]
-        )
-
-        range_bar = alt.Chart(plot_df).mark_rule(
-            color="black",
-            strokeWidth=6
-        ).encode(
-            x="muscle:N",
-            y="min:Q",
-            y2="max:Q"
-        )
-
-        st.altair_chart(bars + range_bar, use_container_width=True)
-elif page == "Muscle Load":
-
-    import altair as alt
-
-    st.title("Muscle Load")
-
-    # -------------------------------------------------
-    # DATE PREP
-    # -------------------------------------------------
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    df["month"] = df["date"].dt.to_period("M").astype(str)
-
-    # =================================================
-    # 1) WEEKLY VIEW (MONDAY-BASED)
-    # =================================================
-    st.subheader("Weekly Load")
-
-    weeks = sorted(df["week"].dropna().unique())
-
-    if len(weeks) == 0:
-        st.write("No data")
-        st.stop()
-
-    selected_week = st.selectbox(
-        "Select week (Mon start)",
-        weeks,
-        format_func=lambda x: x.strftime("%d.%m.%Y")
-    )
-
-    week_df = df[df["week"] == selected_week]
-
-    # -------------------------------------------------
-    # Muscle mapping
-    # -------------------------------------------------
-    EX_MAP = {
-        "Back Squat": ["quads", "glutes", "core"],
-        "RDL": ["hamstrings", "glutes", "back"],
-        "Bulgarian Split Squat": ["quads", "glutes"],
-        "Leg Extension": ["quads"],
-        "Hip Abduction": ["glutes"],
-        "Assisted Pull-Up": ["back", "biceps"],
-        "Assisted Dip": ["chest", "triceps", "shoulders"],
-        "Chest Supported Machine Row": ["back", "biceps"],
-        "Dumbbell Shoulder Press": ["shoulders", "triceps"],
-        "Seated Bicep Curl": ["biceps"],
-        "Dumbbell Incline Press": ["chest", "shoulders", "triceps"],
-        "Machine Abs": ["core"]
-    }
-
-    def build_df(input_df):
-        rows = []
-        for _, r in input_df.iterrows():
-            muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
-            split_sets = r["sets"] / len(muscles)
-
-            for m in muscles:
-                rows.append({"muscle": m, "sets": split_sets})
-
-        out = pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
-        return out
-
-    plot_df = build_df(week_df)
-
-    ranges = {
-        "chest": (10, 20),
-        "back": (12, 20),
-        "quads": (10, 18),
-        "hamstrings": (8, 16),
-        "shoulders": (8, 16),
-        "biceps": (6, 14),
-        "triceps": (6, 14),
-        "glutes": (8, 16),
-        "core": (8, 12)
-    }
-
-    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
-
-    if not plot_df.empty:
-        plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
-        plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
-
-        def status(row):
-            if row["sets"] < row["min"]:
-                return "below"
-            elif row["sets"] > row["max"]:
-                return "above"
-            return "optimal"
-
-        plot_df["status"] = plot_df.apply(status, axis=1)
-
-        bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
-            x=alt.X("muscle:N", axis=alt.Axis(labelFontSize=14)),
-            y=alt.Y("sets:Q", title="Weekly Sets"),
+            x=alt.X("muscle:N"),
+            y="sets:Q",
             color=alt.Color(
                 "status:N",
                 scale=alt.Scale(
@@ -627,137 +518,87 @@ elif page == "Muscle Load":
 
         st.altair_chart(bars + range_bar, use_container_width=True)
 
- # =================================================
-# 2) MONTHLY CALENDAR VIEW (TRUE MONTH GRID)
-# =================================================
-st.subheader("Monthly Calendar View")
+        st.markdown("""
+**Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
+""")
 
-months = sorted(df["date"].dt.to_period("M").astype(str).unique())
+    # =================================================
+    # MONTH VIEW (CALENDAR WEEK GRID)
+    # =================================================
+    else:
 
-selected_month = st.selectbox("Select month", months)
+        st.subheader("Monthly Calendar View")
 
-month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
+        months = sorted(df["month"].dropna().unique())
 
-if month_df.empty:
-    st.write("No data")
-    st.stop()
+        if len(months) == 0:
+            st.write("No data")
+            st.stop()
 
-month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
+        selected_month = st.selectbox("Select month", months)
 
-# -------------------------------------------------
-# Create calendar grid (month starts on 1st)
-# -------------------------------------------------
-first_day = month_df["date"].min().replace(day=1)
-last_day = month_df["date"].max()
+        month_df = df[df["month"] == selected_month].copy()
 
-calendar_days = pd.date_range(first_day, last_day, freq="D")
+        if month_df.empty:
+            st.write("No data")
+            st.stop()
 
-# -------------------------------------------------
-# Muscle mapping (same logic)
-# -------------------------------------------------
-EX_MAP = {
-    "Back Squat": ["quads", "glutes", "core"],
-    "RDL": ["hamstrings", "glutes", "back"],
-    "Bulgarian Split Squat": ["quads", "glutes"],
-    "Leg Extension": ["quads"],
-    "Hip Abduction": ["glutes"],
-    "Assisted Pull-Up": ["back", "biceps"],
-    "Assisted Dip": ["chest", "triceps", "shoulders"],
-    "Chest Supported Machine Row": ["back", "biceps"],
-    "Dumbbell Shoulder Press": ["shoulders", "triceps"],
-    "Seated Bicep Curl": ["biceps"],
-    "Dumbbell Incline Press": ["chest", "shoulders", "triceps"],
-    "Machine Abs": ["core"]
-}
+        # IMPORTANT: full calendar month (not min/max clipped)
+        first_day = pd.to_datetime(f"{selected_month}-01")
+        last_day = (first_day + pd.offsets.MonthEnd(1))
 
-ranges = {
-    "chest": (10, 20),
-    "back": (12, 20),
-    "quads": (10, 18),
-    "hamstrings": (8, 16),
-    "shoulders": (8, 16),
-    "biceps": (6, 14),
-    "triceps": (6, 14),
-    "glutes": (8, 16),
-    "core": (8, 12)
-}
+        month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
-# -------------------------------------------------
-# Build DAILY → WEEKLY aggregation inside month
-# -------------------------------------------------
-month_df["week_start"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+        week_blocks = []
+        for w in sorted(month_df["week"].unique()):
+            wk = build_df(month_df[month_df["week"] == w])
+            wk["week"] = w
+            week_blocks.append(wk)
 
-def build_week(df_in):
-    rows = []
-    for _, r in df_in.iterrows():
-        muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
-        split_sets = r["sets"] / len(muscles)
+        if not week_blocks:
+            st.write("No data")
+            st.stop()
 
-        for m in muscles:
-            rows.append({"muscle": m, "sets": split_sets})
+        cal_df = pd.concat(week_blocks)
+        cal_df = cal_df[cal_df["muscle"].isin(ranges.keys())]
 
-    return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
+        cal_df["min"] = cal_df["muscle"].map(lambda m: ranges[m][0])
+        cal_df["max"] = cal_df["muscle"].map(lambda m: ranges[m][1])
 
-week_data = []
+        def status(row):
+            if row["sets"] < row["min"]:
+                return "below"
+            elif row["sets"] > row["max"]:
+                return "above"
+            return "optimal"
 
-for w in sorted(month_df["week_start"].unique()):
-    wk_df = month_df[month_df["week_start"] == w]
-    wk = build_week(wk_df)
-    wk["week"] = w
-    week_data.append(wk)
+        cal_df["status"] = cal_df.apply(status, axis=1)
 
-if not week_data:
-    st.write("No weekly data")
-    st.stop()
-
-cal_df = pd.concat(week_data)
-cal_df = cal_df[cal_df["muscle"].isin(ranges.keys())]
-
-cal_df["min"] = cal_df["muscle"].map(lambda m: ranges[m][0])
-cal_df["max"] = cal_df["muscle"].map(lambda m: ranges[m][1])
-
-def status(row):
-    if row["sets"] < row["min"]:
-        return "below"
-    elif row["sets"] > row["max"]:
-        return "above"
-    return "optimal"
-
-cal_df["status"] = cal_df.apply(status, axis=1)
-
-# -------------------------------------------------
-# CALENDAR STYLE VISUAL (weeks = rows)
-# -------------------------------------------------
-import altair as alt
-
-bars = alt.Chart(cal_df).mark_bar(color="#93c5fd").encode(
-    x=alt.X("muscle:N", title=None),
-    y=alt.Y("week:T", title="Week in Month"),
-    color=alt.Color(
-        "status:N",
-        scale=alt.Scale(
-            domain=["below", "optimal", "above"],
-            range=["#f59e0b", "#22c55e", "#ef4444"]
+        bars = alt.Chart(cal_df).mark_bar(color="#93c5fd").encode(
+            x="muscle:N",
+            y="week:T",
+            color=alt.Color(
+                "status:N",
+                scale=alt.Scale(
+                    domain=["below", "optimal", "above"],
+                    range=["#f59e0b", "#22c55e", "#ef4444"]
+                )
+            ),
+            tooltip=["week", "muscle", "sets", "min", "max", "status"]
         )
-    ),
-    tooltip=["week", "muscle", "sets", "min", "max", "status"]
-)
 
-range_bar = alt.Chart(cal_df).mark_rule(
-    color="black",
-    strokeWidth=3
-).encode(
-    x="muscle:N",
-    y="min:Q",
-    y2="max:Q"
-)
+        range_bar = alt.Chart(cal_df).mark_rule(
+            color="black",
+            strokeWidth=4
+        ).encode(
+            x="muscle:N",
+            y="min:Q",
+            y2="max:Q"
+        )
 
-st.altair_chart(bars + range_bar, use_container_width=True)
+        st.altair_chart(bars + range_bar, use_container_width=True)
 
-    # -------------------------------------------------
-    # Compact reference
-    # -------------------------------------------------
-    st.markdown("""
+        st.markdown("""
 **Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
 """)
 
