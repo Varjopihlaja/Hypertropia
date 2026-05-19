@@ -417,21 +417,33 @@ elif page == "Muscle Load":
                 rows.append({"muscle": m, "sets": split})
         return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
+    color_scale = alt.Scale(
+        domain=["below", "optimal", "above"],
+        range=["#f59e0b", "#22c55e", "#ef4444"]
+    )
+
     if view == "Week":
 
         weeks = sorted(df["week"].dropna().unique())
-        selected_week = st.selectbox("Select week", weeks, format_func=lambda x: x.strftime("%d.%m.%Y"))
+
+        if not weeks:
+            st.stop()
+
+        selected_week = st.selectbox(
+            "Select week",
+            weeks,
+            format_func=lambda x: x.strftime("%d.%m.%Y")
+        )
 
         week_df = df[df["week"] == selected_week]
         plot_df = build_df(week_df)
-        plot_df = plot_df[plot_df["muscle"].isin(ranges)]
 
     else:
 
         months = sorted(df["date"].dt.to_period("M").astype(str).unique())
         selected_month = st.selectbox("Select month", months)
 
-        month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month]
+        month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
         month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
         week_blocks = []
@@ -441,10 +453,11 @@ elif page == "Muscle Load":
             week_blocks.append(wk)
 
         plot_df = pd.concat(week_blocks)
-        plot_df = plot_df[plot_df["muscle"].isin(ranges)]
 
     if plot_df.empty:
         st.stop()
+
+    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
 
     plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
     plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
@@ -458,15 +471,10 @@ elif page == "Muscle Load":
 
     plot_df["status"] = plot_df.apply(status, axis=1)
 
-    color_scale = alt.Scale(
-        domain=["below","optimal","above"],
-        range=["#f59e0b","#22c55e","#ef4444"]
-    )
-
     base = alt.Chart(plot_df)
 
     bars = base.mark_bar().encode(
-        x="muscle:N",
+        x=alt.X("muscle:N"),
         y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
         color=alt.Color("status:N", scale=color_scale),
         tooltip=["muscle","sets","min","max","status"]
