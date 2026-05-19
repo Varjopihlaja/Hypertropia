@@ -374,15 +374,6 @@ elif page == "Muscle Load":
 
     st.title("Muscle Strength & Load Distribution")
 
-    st.markdown("""
-    ### What this shows
-    This replaces the old heatmap.
-
-    It represents:
-    - total mechanical load per muscle group
-    - imbalance between upper and lower body
-    - which muscles are currently dominating training stimulus
-    """)
 
     col1, col2 = st.columns(2)
 
