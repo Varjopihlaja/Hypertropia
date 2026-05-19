@@ -99,11 +99,10 @@ def session_summary(df):
 
 
 def day_meta(summary_df):
-    """map date -> volume + upper/lower flag"""
     meta = {}
     for _, r in summary_df.iterrows():
-        date = r["date"].date()
-        meta[date] = {
+        d = pd.to_datetime(r["date"]).date()
+        meta[d] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -147,7 +146,7 @@ MUSCLE = {
 }
 
 # =========================================================
-# WEIGHT SYSTEM (unchanged)
+# WEIGHT SYSTEM
 # =========================================================
 
 def get_step(ex, weight):
@@ -171,7 +170,7 @@ def snap(weight, step):
     return float(round(round(weight / step) * step, 1))
 
 # =========================================================
-# PROGRESSION (unchanged)
+# PROGRESSION
 # =========================================================
 
 def progression(ex, reps, rpe, weight):
@@ -191,7 +190,7 @@ def progression(ex, reps, rpe, weight):
     return weight, "maintain"
 
 # =========================================================
-# RECOMMENDED WEIGHT (unchanged)
+# RECOMMENDED WEIGHT
 # =========================================================
 
 def recommended_weight(ex):
@@ -220,7 +219,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (unchanged)
+# TRAIN
 # =========================================================
 
 if page == "Train":
@@ -230,8 +229,6 @@ if page == "Train":
 
     exercises = LOWER if split == "Lower" else UPPER
     session = []
-
-    st.subheader("Training Session")
 
     cols = st.columns(5)
 
@@ -299,7 +296,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (CALENDAR GRID)
+# DASHBOARD (FIXED CALENDAR LOGIC)
 # =========================================================
 
 elif page == "Dashboard":
@@ -311,114 +308,107 @@ elif page == "Dashboard":
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    summary = session_summary(df)
+
+    summary = session_summary(df).dropna()
+    summary["date"] = pd.to_datetime(summary["date"])
     meta = day_meta(summary)
 
     view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
 
-    # -----------------------------
-    # FILTER RANGE
-    # -----------------------------
     today = pd.Timestamp.today().date()
 
+    # -------------------------
+    # FIXED DATE FILTERS
+    # -------------------------
+
     if view == "1 Week":
-        start = today - pd.Timedelta(days=7)
-        summary = summary[summary["date"] >= start]
+        start = today - pd.Timedelta(days=6)
+        end = today
+        dates = pd.date_range(start, end)
 
     elif view == "1 Month":
         start = today.replace(day=1)
-        summary = summary[summary["date"] >= start]
+        end = pd.Timestamp(start) + pd.offsets.MonthEnd(0)
+        dates = pd.date_range(start, end)
 
-    # -----------------------------
-    # ADD WEEKDAY COLUMN
-    # -----------------------------
-    summary["weekday"] = summary["date"].dt.day_name()
+    else:
+        start = summary["date"].min()
+        end = summary["date"].max()
+        dates = pd.date_range(start, end)
 
-    # enforce correct order Monday → Sunday
-    weekday_order = [
-        "Monday", "Tuesday", "Wednesday",
-        "Thursday", "Friday", "Saturday", "Sunday"
-    ]
+    st.subheader(view)
+
+    # -------------------------
+    # 7-COLUMN GRID (MON-SUN)
+    # -------------------------
 
     cols = st.columns(7)
 
-    # -----------------------------
-    # HEADER ROW (FIXED)
-    # -----------------------------
-    for i, day in enumerate(weekday_order):
-        cols[i].markdown(f"### {day}")
+    for i, d in enumerate(dates):
+        col = cols[i % 7]
+        d_date = d.date()
 
-    # -----------------------------
-    # GROUP DATA BY WEEKDAY
-    # -----------------------------
-    grouped = {
-        d: summary[summary["weekday"] == d].sort_values("date")
-        for d in weekday_order
-    }
+        weekday = d.strftime("%a")
 
-    # -----------------------------
-    # FIND MAX ROWS PER COLUMN
-    # -----------------------------
-    max_len = max(len(v) for v in grouped.values()) if grouped else 0
-
-    # -----------------------------
-    # VERTICAL COLUMNS LAYOUT
-    # -----------------------------
-    for row_idx in range(max_len):
-
-        row_cols = st.columns(7)
-
-        for col_idx, day in enumerate(weekday_order):
-
-            df_day = grouped.get(day)
-
-            if df_day is None or row_idx >= len(df_day):
-                row_cols[col_idx].markdown(
-                    """
-                    <div style="
-                        padding:10px;
-                        border-radius:8px;
-                        background-color:#f3f3f3;
-                        text-align:center;
-                        min-height:80px;
-                    ">
-                        -
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                continue
-
-            r = df_day.iloc[row_idx]
-            d = r["date"].date()
-
-            vol = r["volume"]
-            muscle = r["muscle"]
+        if d_date in meta:
+            vol = meta[d_date]["volume"]
+            muscle = meta[d_date]["muscle"]
 
             label = "Lower" if muscle == "legs" else "Upper"
-            color = "#ffdddd" if label == "Lower" else "#dde8ff"
+            color = "#e6f0ff" if label == "Upper" else "#ffe6e6"
 
-            row_cols[col_idx].markdown(
-                f"""
-                <div style="
-                    background-color:{color};
-                    padding:10px;
-                    border-radius:8px;
-                    text-align:center;
-                    min-height:80px;
-                ">
-                    <div><b>{d.day}/{d.month}</b></div>
-                    <div>{label}</div>
-                    <div>{round(vol,1)} kg</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            content = f"""
+            <div style="
+                background-color:{color};
+                padding:10px;
+                border-radius:8px;
+                text-align:center;
+                min-height:80px;
+            ">
+                <b>{weekday}</b><br>
+                {d.day}<br>
+                {label}<br>
+                {round(vol,1)} kg
+            </div>
+            """
+        else:
+            content = f"""
+            <div style="
+                background-color:#f5f5f5;
+                padding:10px;
+                border-radius:8px;
+                text-align:center;
+                min-height:80px;
+            ">
+                <b>{weekday}</b><br>
+                {d.day}<br>
+                No data
+            </div>
+            """
+
+        col.markdown(content, unsafe_allow_html=True)
 
     st.divider()
 
-    st.subheader("Volume Trend")
     st.line_chart(summary.set_index("date")["volume"])
+
+# =========================================================
+# PR TRACKING
+# =========================================================
+
+elif page == "PR Tracking":
+
+    if not df.empty:
+        df["est_1rm"] = df.apply(
+            lambda x: to_float(x["weight"]) * (1 + to_float(x["avg_reps"]) / 30),
+            axis=1
+        )
+
+        for ex in df["exercise"].unique():
+            pr = df[df["exercise"] == ex]["est_1rm"].max()
+            st.write(ex, "→", round(pr, 1))
+    else:
+        st.write("No data")
 
 # =========================================================
 # HEATMAP
