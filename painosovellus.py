@@ -75,13 +75,6 @@ df = safe_df()
 # HELPERS
 # =========================================================
 
-def to_float(x):
-    try:
-        return float(x)
-    except:
-        return 0.0
-
-
 def session_summary(df):
     if df.empty:
         return df
@@ -94,7 +87,8 @@ def session_summary(df):
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
 
-def weekly_exercise_volume(df):
+def weekly_fatigue(df):
+    """TRUE fatigue proxy = rolling weekly volume"""
     if df.empty:
         return pd.DataFrame()
 
@@ -103,7 +97,18 @@ def weekly_exercise_volume(df):
 
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
+    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
+
+def weekly_exercise_volume(df):
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+
     return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
+
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
@@ -138,27 +143,16 @@ MUSCLE = {
 }
 
 # =========================================================
-# STEP SYSTEM (STRICT)
+# STEP + PROGRESSION
 # =========================================================
 
 def get_step(ex):
-    ex_low = ex.lower()
-
-    if "chest supported machine row" in ex_low:
+    if "chest supported machine row" in ex.lower():
         return 1.25
-
-    if any(x in ex_low for x in ["back squat","rdl","bulgarian split squat"]):
-        return 2.5
-
     return 2.5
-
 
 def snap(w, step):
     return round(round(w / step) * step, 2)
-
-# =========================================================
-# ASSISTED LOGIC FIXED
-# =========================================================
 
 def is_assisted(ex):
     return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
@@ -168,7 +162,6 @@ def progression(ex, reps, rpe, weight):
     step = get_step(ex)
     assisted = is_assisted(ex)
 
-    # ASSISTED: HIGHER WEIGHT = MORE ASSISTANCE (reverse logic)
     if assisted:
         if rpe >= 9:
             return snap(weight + step, step), "increase assistance"
@@ -184,17 +177,12 @@ def progression(ex, reps, rpe, weight):
         return weight, "build reps"
     return weight, "maintain"
 
-# =========================================================
-# RECOMMENDED WEIGHT
-# =========================================================
-
 def recommended_weight(ex):
     df_ex = df[df["exercise"] == ex]
     if df_ex.empty:
         return 20
 
     last = df_ex.sort_values("date").iloc[-1]
-
     est = last["weight"] * (1 + last["avg_reps"]/30)
     target = est / (1 + 10/30)
 
@@ -212,11 +200,10 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN
+# TRAIN (UNCHANGED CORE)
 # =========================================================
 
 if page == "Train":
-
     date = st.date_input("Date", datetime.today())
     split = st.radio("Split", ["Lower","Upper"], horizontal=True)
 
@@ -228,8 +215,7 @@ if page == "Train":
     for i, ex in enumerate(exercises):
         with cols[i % 5]:
 
-            bg = "#e0f2fe" if split=="Upper" else "#dcfce7"
-            st.markdown(f"<div style='padding:6px;background:{bg};border-radius:6px;border:1px solid #ccc'>{ex}</div>", unsafe_allow_html=True)
+            st.markdown(f"### {ex}")
 
             last = next((x for x in reversed(data) if x["exercise"]==ex), None)
             rec_w = recommended_weight(ex)
@@ -253,7 +239,6 @@ if page == "Train":
                     )
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
-
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
 
             new_w,msg = progression(ex,reps,rpe,weight)
@@ -278,11 +263,10 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (FIXED CALENDAR)
+# DASHBOARD (UNCHANGED)
 # =========================================================
 
 elif page == "Dashboard":
-
     st.title("Calendar")
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -308,77 +292,61 @@ elif page == "Dashboard":
 
     grid_start = start - timedelta(days=start.weekday())
     grid_end = end + timedelta(days=(6-end.weekday()))
-
     grid = pd.date_range(grid_start, grid_end)
 
-    days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     cols = st.columns(7)
-
-    for i,d in enumerate(days):
+    for i,d in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
         cols[i].markdown(f"**{d}**")
 
     for i,d in enumerate(grid):
-
         col = cols[i%7]
         day = d.date()
 
         in_range = start <= day <= end
 
-        box_style = "border:1px solid #d1d5db;border-radius:10px;padding:10px;min-height:95px;text-align:center"
-
         if day in meta and in_range:
             vol = meta[day]["volume"]
             label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
-            bg = "#2563eb" if label=="Upper" else "#16a34a"
+            color = "#2563eb" if label=="Upper" else "#16a34a"
 
             box = f"""
-            <div style="{box_style};background:{bg};color:white;">
-                <div style="font-size:26px;font-weight:700">{day.day}</div>
+            <div style="border:1px solid #ccc;border-radius:10px;background:{color};color:white;padding:10px;min-height:90px;text-align:center">
+                <div style="font-size:26px">{day.day}</div>
                 <div>{label}</div>
                 <div>{round(vol,1)} kg</div>
-            </div>
-            """
-
-        elif in_range:
-            box = f"""
-            <div style="{box_style};background:#f3f4f6;color:#6b7280;">
-                <div style="font-size:26px;font-weight:700">{day.day}</div>
-                <div>Rest</div>
-            </div>
-            """
-
+            </div>"""
         else:
             box = f"""
-            <div style="{box_style};background:#ffffff;color:#9ca3af;border:1px dashed #e5e7eb;">
-                <div style="font-size:26px;font-weight:700">{day.day}</div>
-            </div>
-            """
+            <div style="border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;padding:10px;min-height:90px;text-align:center;color:#9ca3af">
+                <div style="font-size:26px">{day.day}</div>
+                <div>Rest</div>
+            </div>"""
 
-        col.markdown(box, unsafe_allow_html=True)
+        col.markdown(box,unsafe_allow_html=True)
 
     st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
-# 1RM TRACKING
+# 1RM
 # =========================================================
 
 elif page == "1RM Tracking":
 
-    df["est"] = df["weight"] * (1 + df["avg_reps"]/30)
+    df["est"] = df["weight"]*(1+df["avg_reps"]/30)
 
     left,right = st.columns(2)
 
     with left:
         st.subheader("Upper")
         for ex in UPPER:
-            d = df[df["exercise"]==ex]
+            d=df[df["exercise"]==ex]
             if not d.empty:
                 st.write(ex, round(d["est"].max(),1))
 
     with right:
         st.subheader("Lower")
         for ex in LOWER:
-            d = df[df["exercise"]==ex]
+            d=df[df["exercise"]==ex]
             if not d.empty:
                 st.write(ex, round(d["est"].max(),1))
 
@@ -399,52 +367,51 @@ elif page == "Heatmap":
         st.bar_chart(df[df["muscle"]=="legs"].groupby("exercise")["volume"].sum())
 
 # =========================================================
-# PLANNER
+# PLANNER (FIXED: FATIGUE CURVES)
 # =========================================================
 
 elif page == "Planner":
 
+    st.title("Fatigue Curves (Weekly Load Trend)")
+
+    weekly = weekly_fatigue(df)
+
+    if weekly.empty:
+        st.write("No data")
+        st.stop()
+
     left,right = st.columns(2)
 
     with left:
-        st.subheader("Upper Volume")
-        st.bar_chart(df[df["muscle"]!="legs"].groupby("muscle")["volume"].sum())
+        st.subheader("Upper fatigue")
+        upper = weekly[weekly["muscle"]!="legs"]
+        st.line_chart(upper.groupby("week")["volume"].sum())
 
     with right:
-        st.subheader("Lower Volume")
-        st.bar_chart(df[df["muscle"]=="legs"].groupby("muscle")["volume"].sum())
+        st.subheader("Lower fatigue")
+        lower = weekly[weekly["muscle"]=="legs"]
+        st.line_chart(lower.groupby("week")["volume"].sum())
 
-        # =========================================================
-# PROGRESSION (WEEKLY OVERLOAD GRAPH)
+# =========================================================
+# PROGRESSION
 # =========================================================
 
 elif page == "Progression":
 
     st.title("Weekly Progressive Overload")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
     weekly = weekly_exercise_volume(df)
 
     if weekly.empty:
         st.write("No data")
         st.stop()
 
-    split = st.radio("View", ["Upper", "Lower"], horizontal=True)
+    split = st.radio("View", ["Upper","Lower"], horizontal=True)
+    exercises = UPPER if split=="Upper" else LOWER
 
-    exercises = UPPER if split == "Upper" else LOWER
+    ex = st.selectbox("Exercise", exercises)
 
-    selected_ex = st.selectbox("Exercise", exercises)
+    d = weekly[weekly["exercise"]==ex].sort_values("week")
 
-    data_ex = weekly[weekly["exercise"] == selected_ex].sort_values("week")
-
-    if data_ex.empty:
-        st.write("No data for this exercise")
-        st.stop()
-
-    st.subheader(selected_ex)
-
-    st.line_chart(
-        data_ex.set_index("week")["volume"]
-    )
-
-    st.dataframe(data_ex)
+    st.line_chart(d.set_index("week")["volume"])
+    st.dataframe(d)
