@@ -575,64 +575,141 @@ elif page == "Fatigue Planner":
             st.line_chart(fut_l.set_index("week")["volume"])
 
 elif page == "Progression":
-    st.title("Strength Progression (Actual vs Overload Trend)")
+    st.title("Strength Progression Intelligence")
 
     import altair as alt
 
-    # ensure datetime
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
+    # =========================
+    # UI CONTROLS
+    # =========================
     split = st.radio("View", ["Last 30 Days", "All Time"], horizontal=True)
-    exercises = UPPER + LOWER
+    ex = st.selectbox("Select exercise", UPPER + LOWER)
 
-    def build_exercise_series(ex):
+    # =========================
+    # DATA BUILD
+    # =========================
+    def build_series(ex):
         d = df[df["exercise"] == ex].copy()
         if d.empty:
             return None
 
         d = d.sort_values("date")
 
-        # filter window
         if split == "Last 30 Days":
             cutoff = pd.Timestamp.today() - pd.Timedelta(days=30)
             d = d[d["date"] >= cutoff]
 
-        if d.empty:
+        if len(d) < 2:
             return None
 
-        # actual performance proxy (volume-based strength signal)
+        # core signals
         d["signal"] = d["weight"] * d["avg_reps"]
+        d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
+        d["fatigue"] = d["signal"] / (1 + d["rpe"] / 10)
 
-        # smooth "overload trend" (rolling + linear bias)
+        # smoothing
         d["trend"] = d["signal"].rolling(3, min_periods=1).mean()
 
-        # linear overload projection
+        # linear projection (overload direction)
         x = np.arange(len(d))
-        if len(d) >= 2:
-            slope = np.polyfit(x, d["signal"], 1)[0]
-            d["projection"] = d["signal"].iloc[0] + slope * x
-        else:
-            d["projection"] = d["signal"]
+        slope = np.polyfit(x, d["signal"], 1)[0]
+        d["projection"] = d["signal"].iloc[0] + slope * x
 
         return d
 
-    for ex in exercises:
+    d = build_series(ex)
 
-        d = build_exercise_series(ex)
-        if d is None:
-            continue
+    if d is None:
+        st.warning("Not enough data for this exercise.")
+        st.stop()
 
-        base = alt.Chart(d).encode(x="date:T")
+    # =========================
+    # STATS
+    # =========================
+    last = d.iloc[-1]
 
-        actual = base.mark_line(color="blue", strokeWidth=2).encode(
-            y="signal:Q",
-            tooltip=["date", "signal"]
-        )
+    pr = d["signal"].max()
+    pr_date = d.loc[d["signal"].idxmax(), "date"]
 
-        overload = base.mark_line(color="red", strokeWidth=2, strokeDash=[6,4]).encode(
-            y="projection:Q",
-            tooltip=["date", "projection"]
-        )
+    slope = np.polyfit(np.arange(len(d)), d["signal"], 1)[0]
 
-        st.subheader(ex)
-        st.altair_chart(actual + overload, use_container_width=True)
+    plateau_score = d["signal"].diff().abs().rolling(5).mean().iloc[-1]
+
+    deload_flag = slope < 0 and plateau_score < np.percentile(d["signal"], 20)
+
+    # =========================
+    # METRICS ROW
+    # =========================
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Current Strength", round(last["signal"], 1))
+    col2.metric("Estimated 1RM", round(last["e1rm"], 1))
+    col3.metric("Trend Slope", round(slope, 3))
+    col4.metric("PR", f"{round(pr,1)} ({pr_date.date()})")
+
+    if deload_flag:
+        st.warning("⚠️ Possible stagnation detected — consider a deload week.")
+
+    # =========================
+    # CHART
+    # =========================
+    base = alt.Chart(d).encode(x="date:T")
+
+    actual = base.mark_line(color="blue", strokeWidth=2).encode(
+        y="signal:Q",
+        tooltip=["date", "signal", "rpe"]
+    )
+
+    projected = base.mark_line(
+        color="red",
+        strokeWidth=2,
+        strokeDash=[6,4]
+    ).encode(
+        y="projection:Q"
+    )
+
+    strength_curve = base.mark_line(color="green", strokeWidth=2, opacity=0.6).encode(
+        y="e1rm:Q"
+    )
+
+    pr_point = alt.Chart(d[d["signal"] == pr]).mark_point(
+        color="gold",
+        size=120
+    ).encode(
+        x="date:T",
+        y="signal:Q"
+    )
+
+    st.subheader(ex)
+    st.altair_chart(actual + projected + strength_curve + pr_point, use_container_width=True)
+
+    # =========================
+    # INSIGHT PANEL
+    # =========================
+    st.markdown("### Training Insight")
+
+    if slope > 0.1:
+        st.success("Progressing well — overload is positive.")
+    elif slope > 0:
+        st.info("Slow progression — consider small load increases.")
+    else:
+        st.error("Declining trend — recovery or deload may be needed.")
+
+    if plateau_score < 1:
+        st.warning("Plateau detected — variability is very low.")
+
+    # =========================
+    # NEXT SESSION RECOMMENDATION
+    # =========================
+    next_weight = last["weight"]
+
+    if slope > 0:
+        next_weight *= 1.02
+    elif slope < 0:
+        next_weight *= 0.97
+
+    st.markdown("### Suggested Next Session")
+    st.write(f"Recommended weight: **{round(next_weight,1)} kg**")
+    st.write(f"Suggested reps: **8–12 range (auto-regulated)**")
