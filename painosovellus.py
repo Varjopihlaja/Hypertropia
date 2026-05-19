@@ -63,8 +63,10 @@ def safe_df():
         return pd.DataFrame(columns=["date", "exercise", "muscle", "volume"])
     return pd.DataFrame(data)
 
+df = safe_df()
+
 # =========================================================
-# EXERCISES (RENAMED)
+# EXERCISES
 # =========================================================
 
 UPPER = [
@@ -91,43 +93,60 @@ MUSCLE = {
     "Bulgarian Split Squat": "legs",
     "Leg Extension": "legs",
     "Hip Abduction": "glutes",
-
     "Chest Supported Machine Row": "back",
     "Dumbbell Incline Press": "chest",
     "Dumbbell Shoulder Press": "shoulders",
     "Seated Bicep Curl": "arms",
     "Machine Abs": "core",
-
     "Assisted Pull-Up": "back",
     "Assisted Dip": "chest"
 }
 
 # =========================================================
-# CORE
+# WEIGHT SYSTEM (FIXED REAL GYM RULES)
 # =========================================================
 
-def epley_1rm(w, r):
-    return w * (1 + r / 30)
+def get_step(ex, weight):
 
-def progression(reps, rpe, weight):
+    ex_low = ex.lower()
+
+    # dumbbells
+    if "dumbbell" in ex_low or "curl" in ex_low:
+        return 1.0 if weight <= 10 else 2.5
+
+    # barbell lifts
+    if "squat" in ex_low or "press" in ex_low or "incline" in ex_low:
+        return 1.25
+
+    # machines
+    return 2.5
+
+
+def snap(weight, step):
+    return round(round(weight / step) * step, 2)
+
+# =========================================================
+# PROGRESSION (FIXED)
+# =========================================================
+
+def progression(reps, rpe, weight, ex):
+
     avg = sum(reps) / len(reps)
+    step = get_step(ex, weight)
 
+    # fatigue
     if rpe >= 9:
-        return weight * 0.97, "fatigue drop"
+        return snap(weight * 0.97, step), "fatigue drop"
 
+    # progression
     if avg >= 12 and rpe <= 8:
-        return weight * 1.02, "progress"
+        return snap(weight + step, step), "progress"
 
+    # build reps
     if avg < 8:
         return weight, "build reps"
 
     return weight, "maintain"
-
-# =========================================================
-# SAFE DF
-# =========================================================
-
-df = safe_df()
 
 # =========================================================
 # UI
@@ -141,7 +160,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (RESTORED 4 COLUMN GRID)
+# TRAIN
 # =========================================================
 
 if page == "Train":
@@ -154,7 +173,7 @@ if page == "Train":
 
     st.subheader("Training Session")
 
-    cols = st.columns(4)   # BACK TO 4 BOXES PER ROW
+    cols = st.columns(4)
 
     for i, ex in enumerate(exercises):
 
@@ -196,10 +215,10 @@ if page == "Train":
                 key=f"{ex}_w"
             )
 
-            new_w, msg = progression(reps, rpe, weight)
+            new_w, msg = progression(reps, rpe, weight, ex)
 
             st.caption(msg)
-            st.success(round(new_w, 1))
+            st.success(f"{new_w} kg")
 
             session.append({
                 "date": date.strftime("%Y-%m-%d"),
@@ -238,7 +257,7 @@ elif page == "Dashboard":
 elif page == "PR Tracking":
 
     if not df.empty:
-        df["est_1rm"] = df.apply(lambda x: epley_1rm(x["weight"], x["avg_reps"]), axis=1)
+        df["est_1rm"] = df.apply(lambda x: x["weight"] * (1 + x["avg_reps"] / 30), axis=1)
 
         for ex in df["exercise"].unique():
             pr = df[df["exercise"] == ex]["est_1rm"].max()
@@ -257,7 +276,6 @@ elif page == "Heatmap":
         df["day"] = df["date"].dt.date
 
         heat = df.groupby(["muscle", "day"])["volume"].sum().unstack().fillna(0)
-
         st.dataframe(heat)
     else:
         st.write("No data")
