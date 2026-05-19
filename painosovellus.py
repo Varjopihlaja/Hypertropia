@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client
 
 # =========================================================
@@ -92,6 +92,8 @@ def session_summary(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
+    df = df.dropna(subset=["date"])
+
     return df.groupby("date").agg({
         "volume": "sum",
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
@@ -101,7 +103,7 @@ def session_summary(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        meta[pd.Timestamp(r["date"]).date()] = {
+        meta[r["date"].date()] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -207,7 +209,7 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# PAGE ROUTING
+# UI
 # =========================================================
 
 st.title("Training System")
@@ -218,7 +220,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN
+# TRAIN (unchanged)
 # =========================================================
 
 if page == "Train":
@@ -297,7 +299,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (FIXED WEEK + MONTH GRID)
+# DASHBOARD (FIXED MONTH GRID + WEEK ALIGNMENT)
 # =========================================================
 
 elif page == "Dashboard":
@@ -309,99 +311,109 @@ elif page == "Dashboard":
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+
     summary = session_summary(df)
     meta = day_meta(summary)
 
     view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
 
-    today = pd.Timestamp.today().date()
+    today = datetime.today().date()
 
     # =====================================================
-    # BUILD DATE RANGE (FIXED MONDAY ALIGNMENT)
+    # FILTER RANGE
     # =====================================================
 
     if view == "1 Week":
-        start = pd.Timestamp(today) - pd.Timedelta(days=6)
-        dates = pd.date_range(start=start, end=today)
+        start = today - timedelta(days=6)
+        end = today
 
     elif view == "1 Month":
-        first_day = pd.Timestamp(today.replace(day=1))
-        last_day = first_day + pd.offsets.MonthEnd(0)
-
-        # ALIGN TO MONDAY START
-        start = first_day - pd.Timedelta(days=first_day.weekday())
-        end = last_day + pd.Timedelta(days=(6 - last_day.weekday()))
-
-        dates = pd.date_range(start=start, end=end)
+        start = today.replace(day=1)
+        end = (start + pd.offsets.MonthEnd(1)).date()
 
     else:
-        start = summary["date"].min()
-        end = summary["date"].max()
-
-        start = pd.Timestamp(start) - pd.Timedelta(days=pd.Timestamp(start).weekday())
-        end = pd.Timestamp(end) + pd.Timedelta(days=(6 - pd.Timestamp(end).weekday()))
-
-        dates = pd.date_range(start=start, end=end)
+        start = df["date"].min().date()
+        end = df["date"].max().date()
 
     # =====================================================
-    # GRID (MONDAY START ALWAYS)
+    # CREATE DATE RANGE
     # =====================================================
 
-    st.subheader(view)
+    full_range = pd.date_range(start, end)
+
+    # =====================================================
+    # ALIGN TO MONDAY START (IMPORTANT FIX)
+    # =====================================================
+
+    first_monday = full_range[0] - pd.Timedelta(days=full_range[0].weekday())
+    last_sunday = full_range[-1] + pd.Timedelta(days=(6 - full_range[-1].weekday()))
+
+    grid_range = pd.date_range(first_monday, last_sunday)
 
     cols = st.columns(7)
 
-    week_day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    # =====================================================
+    # CALENDAR GRID
+    # =====================================================
 
-    # headers
-    for i, d in enumerate(week_day_labels):
-        cols[i].markdown(f"**{d}**")
-
-    # blank offset handled automatically via start alignment
-
-    for i, d in enumerate(dates):
+    for i, d in enumerate(grid_range):
 
         col = cols[i % 7]
-        day = d.date()
 
-        if day in meta:
-            vol = meta[day]["volume"]
-            muscle = meta[day]["muscle"]
+        is_current_month = d.date() >= start and d.date() <= end
 
+        weekday = d.strftime("%a")
+
+        if d.date() in meta:
+
+            vol = meta[d.date()]["volume"]
+            muscle = meta[d.date()]["muscle"]
             label = "Lower" if muscle == "legs" else "Upper"
-            bg = "#e8f0ff" if label == "Upper" else "#ffe8e8"
+
+            if view == "1 Month":
+                style = "background-color:white;border:1px solid #ccc;"
+            else:
+                style = "background-color:#f0f0f0;"
 
             box = f"""
             <div style="
-                background-color:{bg};
-                padding:12px;
-                border-radius:10px;
-                text-align:center;
+                {style}
+                padding:10px;
+                border-radius:8px;
                 min-height:90px;
+                text-align:center;
             ">
-                <div><b>{day.day}</b></div>
+                <div><b>{weekday} {d.day}</b></div>
                 <div>{label}</div>
-                <div>{round(vol,1)}</div>
+                <div>{round(vol,1)} kg</div>
             </div>
             """
 
         else:
+
+            if view == "1 Month":
+                style = "background-color:white;border:1px solid #ddd;"
+            else:
+                style = "background-color:#fafafa;"
+
             box = f"""
             <div style="
-                background-color:#f5f5f5;
-                padding:12px;
-                border-radius:10px;
-                text-align:center;
+                {style}
+                padding:10px;
+                border-radius:8px;
                 min-height:90px;
+                text-align:center;
+                opacity:0.5;
             ">
-                <div><b>{day.day}</b></div>
+                <div><b>{weekday} {d.day}</b></div>
             </div>
             """
 
         col.markdown(box, unsafe_allow_html=True)
 
 # =========================================================
-# PR TRACKING
+# PR TRACKING / HEATMAP / PLANNER (UNCHANGED)
 # =========================================================
 
 elif page == "PR Tracking":
@@ -418,9 +430,6 @@ elif page == "PR Tracking":
     else:
         st.write("No data")
 
-# =========================================================
-# HEATMAP
-# =========================================================
 
 elif page == "Heatmap":
 
@@ -433,9 +442,6 @@ elif page == "Heatmap":
     else:
         st.write("No data")
 
-# =========================================================
-# PLANNER
-# =========================================================
 
 elif page == "Planner":
 
