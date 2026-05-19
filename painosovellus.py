@@ -129,7 +129,7 @@ MUSCLE = {
 }
 
 # =========================================================
-# STEP SYSTEM (FIXED STRICT ROUNDING)
+# STEP SYSTEM (STRICT)
 # =========================================================
 
 def get_step(ex):
@@ -141,9 +141,6 @@ def get_step(ex):
     if any(x in ex_low for x in ["back squat","rdl","bulgarian split squat"]):
         return 2.5
 
-    if "dumbbell" in ex_low or "curl" in ex_low:
-        return 2.5
-
     return 2.5
 
 
@@ -151,7 +148,7 @@ def snap(w, step):
     return round(round(w / step) * step, 2)
 
 # =========================================================
-# ASSISTED LOGIC
+# ASSISTED LOGIC FIXED
 # =========================================================
 
 def is_assisted(ex):
@@ -160,11 +157,10 @@ def is_assisted(ex):
 def progression(ex, reps, rpe, weight):
     avg = sum(reps)/max(len(reps),1)
     step = get_step(ex)
-
     assisted = is_assisted(ex)
 
+    # ASSISTED: HIGHER WEIGHT = MORE ASSISTANCE (reverse logic)
     if assisted:
-        # IMPORTANT: higher weight = MORE assistance (worse strength)
         if rpe >= 9:
             return snap(weight + step, step), "increase assistance"
         if avg >= 12 and rpe <= 8:
@@ -207,7 +203,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (COMPACT FIXED)
+# TRAIN
 # =========================================================
 
 if page == "Train":
@@ -223,8 +219,8 @@ if page == "Train":
     for i, ex in enumerate(exercises):
         with cols[i % 5]:
 
-            bg = "#dbeafe" if ex in UPPER else "#dcfce7"
-            st.markdown(f"<div style='padding:6px;background:{bg};border-radius:6px'>{ex}</div>", unsafe_allow_html=True)
+            bg = "#e0f2fe" if split=="Upper" else "#dcfce7"
+            st.markdown(f"<div style='padding:6px;background:{bg};border-radius:6px;border:1px solid #ccc'>{ex}</div>", unsafe_allow_html=True)
 
             last = next((x for x in reversed(data) if x["exercise"]==ex), None)
             rec_w = recommended_weight(ex)
@@ -234,20 +230,18 @@ if page == "Train":
             reps = []
             last_reps = last["reps_list"] if last else [10]*sets
 
-            row = st.container()
-            with row:
-                rep_inputs = st.columns(sets)
+            rep_cols = st.columns(max(1, sets))
 
-                for i2 in range(sets):
-                    with rep_inputs[i2]:
-                        reps.append(
-                            st.number_input(
-                                f"{i2+1}",
-                                0,30,
-                                int(last_reps[i2]) if i2<len(last_reps) else 10,
-                                key=f"{ex}r{i2}"
-                            )
+            for i2 in range(sets):
+                with rep_cols[i2]:
+                    reps.append(
+                        st.number_input(
+                            f"{i2+1}",
+                            0,30,
+                            int(last_reps[i2]) if i2<len(last_reps) else 10,
+                            key=f"{ex}r{i2}"
                         )
+                    )
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
 
@@ -275,7 +269,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (CLEAN CALENDAR)
+# DASHBOARD (FIXED CALENDAR)
 # =========================================================
 
 elif page == "Dashboard":
@@ -305,9 +299,10 @@ elif page == "Dashboard":
 
     grid_start = start - timedelta(days=start.weekday())
     grid_end = end + timedelta(days=(6-end.weekday()))
+
     grid = pd.date_range(grid_start, grid_end)
 
-    days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     cols = st.columns(7)
 
     for i,d in enumerate(days):
@@ -320,57 +315,69 @@ elif page == "Dashboard":
 
         in_range = start <= day <= end
 
+        box_style = "border:1px solid #d1d5db;border-radius:10px;padding:10px;min-height:95px;text-align:center"
+
         if day in meta and in_range:
             vol = meta[day]["volume"]
             label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
-            color = "#3b82f6" if label=="Upper" else "#22c55e"
+            bg = "#2563eb" if label=="Upper" else "#16a34a"
 
             box = f"""
-            <div style="border:1px solid #ccc;border-radius:8px;background:{color};color:white;padding:10px;min-height:90px;text-align:center">
-                <div style="font-size:22px">{day.day}</div>
+            <div style="{box_style};background:{bg};color:white;">
+                <div style="font-size:26px;font-weight:700">{day.day}</div>
                 <div>{label}</div>
                 <div>{round(vol,1)} kg</div>
-            </div>"""
+            </div>
+            """
+
+        elif in_range:
+            box = f"""
+            <div style="{box_style};background:#f3f4f6;color:#6b7280;">
+                <div style="font-size:26px;font-weight:700">{day.day}</div>
+                <div>Rest</div>
+            </div>
+            """
 
         else:
             box = f"""
-            <div style="border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;min-height:90px;text-align:center;color:#9ca3af">
-                <div style="font-size:22px">{day.day}</div>
-            </div>"""
+            <div style="{box_style};background:#ffffff;color:#9ca3af;border:1px dashed #e5e7eb;">
+                <div style="font-size:26px;font-weight:700">{day.day}</div>
+            </div>
+            """
 
-        col.markdown(box,unsafe_allow_html=True)
+        col.markdown(box, unsafe_allow_html=True)
 
     st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
-# PR TRACKING (SPLIT)
+# 1RM TRACKING
 # =========================================================
 
-elif page=="1RM Tracking":
+elif page == "1RM Tracking":
 
-    df["est"]=df["weight"]*(1+df["avg_reps"]/30)
+    df["est"] = df["weight"] * (1 + df["avg_reps"]/30)
 
     left,right = st.columns(2)
 
     with left:
         st.subheader("Upper")
         for ex in UPPER:
-            d=df[df["exercise"]==ex]
+            d = df[df["exercise"]==ex]
             if not d.empty:
-                st.write(ex,round(d["est"].max(),1))
+                st.write(ex, round(d["est"].max(),1))
 
     with right:
         st.subheader("Lower")
         for ex in LOWER:
-            d=df[df["exercise"]==ex]
+            d = df[df["exercise"]==ex]
             if not d.empty:
-                st.write(ex,round(d["est"].max(),1))
+                st.write(ex, round(d["est"].max(),1))
 
 # =========================================================
-# HEATMAP (SPLIT)
+# HEATMAP
 # =========================================================
 
-elif page=="Heatmap":
+elif page == "Heatmap":
 
     left,right = st.columns(2)
 
@@ -383,10 +390,10 @@ elif page=="Heatmap":
         st.bar_chart(df[df["muscle"]=="legs"].groupby("exercise")["volume"].sum())
 
 # =========================================================
-# PLANNER (SPLIT)
+# PLANNER
 # =========================================================
 
-elif page=="Planner":
+elif page == "Planner":
 
     left,right = st.columns(2)
 
