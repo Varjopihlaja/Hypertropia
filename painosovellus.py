@@ -73,7 +73,10 @@ def safe_df():
 
 df = safe_df()
 
-# ensure numeric safety
+# =========================================================
+# SAFETY
+# =========================================================
+
 def to_float(x):
     try:
         return float(x)
@@ -81,11 +84,11 @@ def to_float(x):
         return 0.0
 
 # =========================================================
-# EXERCISES (fixed order: biceps before incline press)
+# EXERCISES (UNCHANGED)
 # =========================================================
 
 LOWER = [
-        "RDL",
+    "RDL",
     "Back Squat",
     "Bulgarian Split Squat",
     "Leg Extension",
@@ -96,13 +99,11 @@ UPPER = [
     "Assisted Pull-Up",
     "Assisted Dip",
     "Chest Supported Machine Row",
-    "Seated Bicep Curl",          # FIXED ORDER
+    "Seated Bicep Curl",
     "Dumbbell Incline Press",
     "Dumbbell Shoulder Press",
     "Machine Abs"
 ]
-
-
 
 MUSCLE = {
     "Back Squat": "legs",
@@ -120,59 +121,40 @@ MUSCLE = {
 }
 
 # =========================================================
-# WEIGHT SYSTEM
+# WEIGHT SYSTEM (UNCHANGED)
 # =========================================================
 
 def get_step(ex, weight):
-
     ex_low = ex.lower()
 
-    # =====================================================
-    # BARBELL (bilateral load → must increase both sides)
-    # =====================================================
-    BARBELL = ["back squat", "rdl", "bulgarian split squat"]
+    barbell = ["back squat", "rdl", "bulgarian split squat"]
+    if any(x in ex_low for x in barbell):
+        return 2.5
 
-    if any(x in ex_low for x in BARBELL):
-        return 2.5   # MUST BE EVEN TOTAL LOAD
+    plate = ["chest supported machine row"]
+    if any(x in ex_low for x in plate):
+        return 1.25
 
-    # =====================================================
-    # PLATE LOADED (single stack or per-side machines)
-    # =====================================================
-    PLATE_LOADED = ["chest supported machine row"]
-
-    if any(x in ex_low for x in PLATE_LOADED):
-        return 1.25   # per-side loading allowed
-
-    # =====================================================
-    # DUMBBELLS / ISOLATION
-    # =====================================================
     if "dumbbell" in ex_low or "curl" in ex_low:
         return 1.0 if weight <= 10 else 2.5
 
-    # =====================================================
-    # OTHER MACHINES
-    # =====================================================
     return 2.5
 
 
 def snap(weight, step):
     weight = float(weight)
     step = float(step)
-
-    snapped = round(round(weight / step) * step, 2)
-
-    # force clean gym rounding (no 28.8 / 31.3 nonsense)
-    return float(round(snapped, 1))
+    return float(round(round(weight / step) * step, 1))
 
 # =========================================================
-# EPLEY 1RM (FIXED)
+# EPLEY
 # =========================================================
 
 def epley_1rm(weight, reps):
     return weight * (1 + reps / 30)
 
 # =========================================================
-# CONSISTENCY ACROSS SESSIONS (FIXED)
+# CONSISTENCY
 # =========================================================
 
 def is_consistent(ex):
@@ -189,33 +171,28 @@ def is_consistent(ex):
     )
 
 # =========================================================
-# PROGRESSION (FIXED + SAFE TYPES)
+# PROGRESSION (UNCHANGED)
 # =========================================================
 
 def progression(ex, reps, rpe, weight):
 
     weight = to_float(weight)
     avg = sum(reps) / max(len(reps), 1)
-    step = float(get_step(ex, weight))
+    step = get_step(ex, weight)
 
-    consistent = is_consistent(ex)
-
-    # fatigue
     if rpe >= 9:
         return snap(weight * 0.97, step), "fatigue drop"
 
-    # ONLY progress if truly consistent across sessions
-    if consistent and avg >= 12 and rpe <= 8:
-        return snap(weight + step, step), "progress (consistent)"
+    if is_consistent(ex) and avg >= 12 and rpe <= 8:
+        return snap(weight + step, step), "progress"
 
-    # build reps first
     if avg < 8:
         return weight, "build reps"
 
     return weight, "maintain"
 
 # =========================================================
-# RECOMMENDED WEIGHT (AUTO-FILL FIX)
+# RECOMMENDED WEIGHT (UNCHANGED)
 # =========================================================
 
 def recommended_weight(ex):
@@ -227,10 +204,47 @@ def recommended_weight(ex):
     last = df_ex.sort_values("date").tail(1).iloc[0]
 
     est = epley_1rm(last["weight"], last["avg_reps"])
-    target_10rm = est / (1 + 10/30)
+    target = est / (1 + 10/30)
 
     step = get_step(ex, last["weight"])
-    return snap(target_10rm, step)
+    return snap(target, step)
+
+# =========================================================
+# ⭐ NEW: WEEKLY OVERLOAD PLAN
+# =========================================================
+
+def weekly_overload_plan(ex):
+    df_ex = df[df["exercise"] == ex].copy()
+
+    if df_ex.empty:
+        return "No data"
+
+    df_ex["date"] = pd.to_datetime(df_ex["date"], errors="coerce")
+
+    last_week = df_ex[df_ex["date"] >= (pd.Timestamp.today() - pd.Timedelta(days=7))]
+
+    if last_week.empty:
+        return "Not enough weekly data"
+
+    avg_weight = last_week["weight"].mean()
+    avg_reps = last_week["avg_reps"].mean()
+
+    step = get_step(ex, avg_weight)
+
+    # progression logic
+    if avg_reps >= 12:
+        target = avg_weight + step
+        note = "increase weight next week"
+    elif avg_reps < 8:
+        target = avg_weight
+        note = "keep weight, build reps"
+    else:
+        target = avg_weight
+        note = "maintain"
+
+    target = snap(target, step)
+
+    return f"{target:.1f} kg → {note}"
 
 # =========================================================
 # UI
@@ -240,19 +254,25 @@ st.title("Training System")
 
 page = st.sidebar.radio(
     "Menu",
-    ["Train", "Dashboard", "PR Tracking", "Heatmap", "Planner"]
+    ["Train", "Dashboard", "PR Tracking", "Heatmap", "Planner"],
+    index=0
 )
 
 # =========================================================
-# TRAIN (5 columns fixed + autofill fix)
+# TRAIN
 # =========================================================
 
 if page == "Train":
 
     date = st.date_input("Date", datetime.today())
-    split = st.radio("Split", ["Upper", "Lower"], horizontal=True)
 
-    exercises = UPPER if split == "Upper" else LOWER
+    split = st.radio(
+        "Split",
+        ["Lower", "Upper"],
+        horizontal=True
+    )
+
+    exercises = LOWER if split == "Lower" else UPPER
     session = []
 
     st.subheader("Training Session")
@@ -268,6 +288,9 @@ if page == "Train":
             last = next((x for x in reversed(data) if x["exercise"] == ex), None)
 
             rec_w = recommended_weight(ex)
+
+            # ⭐ NEW UI OUTPUT
+            st.info(f"Weekly plan: {weekly_overload_plan(ex)}")
 
             sets = st.number_input(
                 "Sets", 0, 6,
@@ -294,9 +317,9 @@ if page == "Train":
             rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_r")
 
             weight = st.number_input(
-                "Weight (recommended auto)",
+                "Weight",
                 0.0, 300.0,
-                float(rec_w),   # FIXED AUTOFILL
+                float(rec_w),
                 step=0.5,
                 key=f"{ex}_w"
             )
@@ -336,7 +359,7 @@ elif page == "Dashboard":
         st.write("No data")
 
 # =========================================================
-# PR TRACKING (EPLEY FIXED)
+# PR TRACKING
 # =========================================================
 
 elif page == "PR Tracking":
