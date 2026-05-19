@@ -373,7 +373,6 @@ elif page == "1RM Tracking":
 elif page == "Muscle Load":
 
     import altair as alt
-    import math
 
     st.title("Muscle Load")
 
@@ -381,9 +380,7 @@ elif page == "Muscle Load":
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
-    # =========================================================
-    # CONFIG
-    # =========================================================
+    # ---------------- CONFIG ----------------
 
     EX_MAP = {
         "Back Squat": ["quads","glutes","core"],
@@ -413,8 +410,8 @@ elif page == "Muscle Load":
     }
 
     color_scale = alt.Scale(
-        domain=["below", "optimal", "above"],
-        range=["#f59e0b", "#22c55e", "#ef4444"]
+        domain=["below","optimal","above"],
+        range=["#f59e0b","#22c55e","#ef4444"]
     )
 
     def build_df(in_df):
@@ -464,12 +461,12 @@ elif page == "Muscle Load":
 
         return (bars + range_bar).properties(height=180)
 
-    # =========================================================
-    # WEEK VIEW (unchanged)
-    # =========================================================
+    # ---------------- WEEK ----------------
+
     if view == "Week":
 
         df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+
         weeks = sorted(df["week"].dropna().unique())
 
         if not weeks:
@@ -489,52 +486,50 @@ elif page == "Muscle Load":
         if chart:
             st.altair_chart(chart, use_container_width=True)
 
-   # =========================================================
-# MONTH VIEW (STACKED WEEK VIEWS — CORRECT)
-# =========================================================
-else:
+    # ---------------- MONTH ----------------
 
-    months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-    selected_month = st.selectbox("Select month", months)
+    else:
 
-    # Month boundaries
-    start = pd.to_datetime(selected_month + "-01")
-    end = start + pd.offsets.MonthEnd(1)
+        months = sorted(df["date"].dt.to_period("M").astype(str).unique())
 
-    # Expand to full weeks (Mon–Sun)
-    grid_start = start - pd.Timedelta(days=start.weekday())
-    grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
+        if not months:
+            st.stop()
 
-    all_days = pd.date_range(grid_start, grid_end)
+        selected_month = st.selectbox("Select month", months)
 
-    # Split into weeks
-    weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
+        start = pd.to_datetime(selected_month + "-01")
+        end = start + pd.offsets.MonthEnd(1)
 
-    # Month header
-    st.subheader(start.strftime("%B %Y"))
+        # Expand to full weeks (Mon–Sun)
+        grid_start = start - pd.Timedelta(days=start.weekday())
+        grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
 
-    for w in weeks:
+        all_days = pd.date_range(grid_start, grid_end)
 
-        week_start = w[0]
-        week_end = w[-1]
+        # Split into weeks
+        weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
 
-        # Week label like: 27.4–3.5
-        label = f"{week_start.day}.{week_start.month} – {week_end.day}.{week_end.month}"
-        st.markdown(f"### {label}")
+        st.subheader(start.strftime("%B %Y"))
 
-        # SAME DATA LOGIC AS WEEK VIEW
-        week_df = df[(df["date"] >= week_start) & (df["date"] <= week_end)]
+        for w in weeks:
 
-        plot_df = build_df(week_df)
+            week_start = w[0]
+            week_end = w[-1]
 
-        chart = prepare_plot(plot_df)
+            label = f"{week_start.day}.{week_start.month} – {week_end.day}.{week_end.month}"
+            st.markdown(f"### {label}")
 
-        if chart:
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.write("No data")
+            week_df = df[(df["date"] >= week_start) & (df["date"] <= week_end)]
 
-        st.divider()
+            plot_df = build_df(week_df)
+            chart = prepare_plot(plot_df)
+
+            if chart:
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.write("No data")
+
+            st.divider()
 # =========================================================
 # FATIGUE + PROGRESSION (unchanged)
 # =========================================================
