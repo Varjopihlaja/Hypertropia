@@ -239,7 +239,11 @@ page = st.sidebar.radio(
 # =========================================================
 
 if page == "Train":
-    date = st.date_input("Date", datetime.today())
+    date = st.date_input(
+    "Date",
+    datetime.today(),
+    format="DD.MM.YYYY"
+)
     split = st.radio("Split", ["Lower","Upper"], horizontal=True)
 
     exercises = LOWER if split=="Lower" else UPPER
