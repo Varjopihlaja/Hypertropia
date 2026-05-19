@@ -318,25 +318,48 @@ elif page == "Dashboard":
 
     today = pd.Timestamp.today().date()
 
+    # -----------------------------
+    # DATE RANGE
+    # -----------------------------
     if view == "1 Week":
         start = today - pd.Timedelta(days=6)
         dates = pd.date_range(start, today)
+
+        title = "Last 7 Days"
+
     elif view == "1 Month":
         start = today.replace(day=1)
-        dates = pd.date_range(start, periods=calendar.monthrange(today.year, today.month)[1])
+        dates = pd.date_range(
+            start,
+            periods=calendar.monthrange(today.year, today.month)[1]
+        )
+
+        title = today.strftime("%B %Y")
+
     else:
         start = summary["date"].min().date()
         end = summary["date"].max().date()
         dates = pd.date_range(start, end)
 
-    # normalize
+        title = "All Logged Data"
+
+    # -----------------------------
+    # TITLE
+    # -----------------------------
+    st.subheader(title)
+
     date_list = [d.date() for d in dates]
 
     cols = st.columns(7)
 
+    # -----------------------------
+    # CALENDAR GRID
+    # -----------------------------
     for i, d in enumerate(date_list):
 
         col = cols[i % 7]
+
+        weekday = pd.Timestamp(d).strftime("%a")  # Mon, Tue, etc.
 
         if d in meta:
             vol = meta[d]["volume"]
@@ -351,9 +374,9 @@ elif page == "Dashboard":
                 padding:10px;
                 border-radius:10px;
                 text-align:center;
-                min-height:90px;
+                min-height:95px;
             ">
-                <div><b>{d.day}</b></div>
+                <div><b>{weekday} {d.day}</b></div>
                 <div>{label}</div>
                 <div>{round(vol,1)} kg</div>
             </div>
@@ -366,9 +389,9 @@ elif page == "Dashboard":
                 padding:10px;
                 border-radius:10px;
                 text-align:center;
-                min-height:90px;
+                min-height:95px;
             ">
-                <div>{d.day}</div>
+                <div><b>{weekday} {d.day}</b></div>
                 <div>No data</div>
             </div>
             """
