@@ -309,28 +309,42 @@ elif page == "Dashboard":
     summary = session_summary(df)
     meta = day_meta(summary)
 
-    view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
+    view = st.radio(
+        "View",
+        ["1 Week", "1 Month", "Last 3 Months", "All"],
+        horizontal=True
+    )
 
     today = datetime.today().date()
 
     # =====================================================
-    # RANGE SETUP
+    # RANGE LOGIC
     # =====================================================
 
     if view == "1 Week":
         start = today - timedelta(days=6)
         end = today
+        title = "Last 7 Days"
 
     elif view == "1 Month":
         start = today.replace(day=1)
         end = (start + pd.offsets.MonthEnd(1)).date()
+        title = today.strftime("%B %Y")
+
+    elif view == "Last 3 Months":
+        start = (today.replace(day=1) - pd.DateOffset(months=2)).date()
+        end = (today + pd.offsets.MonthEnd(0)).date()
+        title = "Last 3 Months"
 
     else:
         start = df["date"].min().date()
         end = df["date"].max().date()
+        title = "All Logged Data"
+
+    st.subheader(title)
 
     # =====================================================
-    # MONDAY-ALIGNED GRID
+    # GRID ALIGNMENT (MONDAY START)
     # =====================================================
 
     grid_start = start - timedelta(days=start.weekday())
@@ -338,21 +352,21 @@ elif page == "Dashboard":
 
     grid = pd.date_range(grid_start, grid_end)
 
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    weekdays = [
+        "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday", "Sunday"
+    ]
 
     cols = st.columns(7)
 
-    # =====================================================
-    # HEADER (ONLY ONCE)
-    # =====================================================
-
+    # Header row
     for i in range(7):
-        cols[i].markdown(f"**{days[i]}**")
+        cols[i].markdown(f"**{weekdays[i]}**")
 
     st.write("")
 
     # =====================================================
-    # GRID
+    # RENDER GRID
     # =====================================================
 
     for i, d in enumerate(grid):
@@ -360,57 +374,85 @@ elif page == "Dashboard":
         col = cols[i % 7]
         day = d.date()
 
-        in_current_range = start <= day <= end
-        in_real_month = (view != "All" and day.month == start.month)
+        in_range = start <= day <= end
+        in_current_month = (day.month == start.month)
 
-        if day in meta and in_current_range:
+        box_date = f"{day.day}/{day.month}"
+
+        # =================================================
+        # CASE 1: HAS TRAINING DATA
+        # =================================================
+
+        if day in meta and in_range:
 
             vol = meta[day]["volume"]
             muscle = meta[day]["muscle"]
 
             label = "Lower" if muscle == "legs" else "Upper"
 
-            # base color (always grey background for real days)
-            bg = "#f3f4f6"
-            border = "#d1d5db"
-
-            # override with training type
             if label == "Lower":
-                border = "#3b82f6"
+                bg = "#3b82f6"   # blue
             else:
-                border = "#22c55e"
+                bg = "#22c55e"   # green
 
-            # fade outside month
-            if view == "1 Month" and not in_real_month:
-                bg = "#ffffff"
-                border = "#e5e7eb"
+            text_color = "white"
+            border = "transparent"
 
             box = f"""
             <div style="
                 background-color:{bg};
-                border:1px solid {border};
+                color:{text_color};
+                border-radius:12px;
                 padding:10px;
-                border-radius:10px;
-                min-height:90px;
+                min-height:110px;
                 text-align:center;
             ">
-                <div>{label}</div>
-                <div>{round(vol,1)} kg</div>
+                <div style="font-size:12px;">{box_date}</div>
+                <div style="font-size:28px; font-weight:700;">{day.day}</div>
+                <div style="font-size:13px;">{label}</div>
+                <div style="font-size:13px;">{round(vol,1)} kg</div>
             </div>
             """
+
+        # =================================================
+        # CASE 2: CURRENT MONTH BUT NO DATA (REST DAY)
+        # =================================================
+
+        elif in_range and in_current_month:
+
+            box = f"""
+            <div style="
+                background-color:#d1d5db;
+                color:#111827;
+                border-radius:12px;
+                padding:10px;
+                min-height:110px;
+                text-align:center;
+            ">
+                <div style="font-size:12px;">{box_date}</div>
+                <div style="font-size:28px; font-weight:700;">{day.day}</div>
+                <div style="font-size:13px;">Rest / No Data</div>
+            </div>
+            """
+
+        # =================================================
+        # CASE 3: PADDING DAYS (OUTSIDE MONTH)
+        # =================================================
 
         else:
 
             box = f"""
             <div style="
                 background-color:#ffffff;
-                border:1px solid #e5e7eb;
+                border:1px solid #d1d5db;
+                border-radius:12px;
                 padding:10px;
-                border-radius:10px;
-                min-height:90px;
+                min-height:110px;
                 text-align:center;
-                opacity:0.35;
+                color:#9ca3af;
             ">
+                <div style="font-size:12px;">{box_date}</div>
+                <div style="font-size:28px; font-weight:700;">{day.day}</div>
             </div>
             """
 
@@ -418,7 +460,6 @@ elif page == "Dashboard":
 
     st.divider()
     st.line_chart(summary.set_index("date")["volume"])
-
 # =========================================================
 # PR TRACKING
 # =========================================================
