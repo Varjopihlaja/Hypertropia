@@ -627,56 +627,132 @@ elif page == "Muscle Load":
 
         st.altair_chart(bars + range_bar, use_container_width=True)
 
-    # =================================================
-    # 2) MONTHLY VIEW (LONG TERM LOG)
-    # =================================================
-    st.subheader("Monthly Load")
+ # =================================================
+# 2) MONTHLY CALENDAR VIEW (TRUE MONTH GRID)
+# =================================================
+st.subheader("Monthly Calendar View")
 
-    months = sorted(df["month"].dropna().unique())
+months = sorted(df["date"].dt.to_period("M").astype(str).unique())
 
-    selected_month = st.selectbox("Select month", months)
+selected_month = st.selectbox("Select month", months)
 
-    month_df = df[df["month"] == selected_month]
+month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
 
-    month_plot = build_df(month_df)
-    month_plot = month_plot[month_plot["muscle"].isin(ranges.keys())]
+if month_df.empty:
+    st.write("No data")
+    st.stop()
 
-    if not month_plot.empty:
-        month_plot["min"] = month_plot["muscle"].map(lambda m: ranges[m][0])
-        month_plot["max"] = month_plot["muscle"].map(lambda m: ranges[m][1])
+month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
 
-        def status2(row):
-            if row["sets"] < row["min"]:
-                return "below"
-            elif row["sets"] > row["max"]:
-                return "above"
-            return "optimal"
+# -------------------------------------------------
+# Create calendar grid (month starts on 1st)
+# -------------------------------------------------
+first_day = month_df["date"].min().replace(day=1)
+last_day = month_df["date"].max()
 
-        month_plot["status"] = month_plot.apply(status2, axis=1)
+calendar_days = pd.date_range(first_day, last_day, freq="D")
 
-        bars_m = alt.Chart(month_plot).mark_bar(color="#60a5fa").encode(
-            x=alt.X("muscle:N", axis=alt.Axis(labelFontSize=14)),
-            y=alt.Y("sets:Q", title="Monthly Sets"),
-            color=alt.Color(
-                "status:N",
-                scale=alt.Scale(
-                    domain=["below", "optimal", "above"],
-                    range=["#f59e0b", "#22c55e", "#ef4444"]
-                )
-            ),
-            tooltip=["muscle", "sets", "min", "max", "status"]
+# -------------------------------------------------
+# Muscle mapping (same logic)
+# -------------------------------------------------
+EX_MAP = {
+    "Back Squat": ["quads", "glutes", "core"],
+    "RDL": ["hamstrings", "glutes", "back"],
+    "Bulgarian Split Squat": ["quads", "glutes"],
+    "Leg Extension": ["quads"],
+    "Hip Abduction": ["glutes"],
+    "Assisted Pull-Up": ["back", "biceps"],
+    "Assisted Dip": ["chest", "triceps", "shoulders"],
+    "Chest Supported Machine Row": ["back", "biceps"],
+    "Dumbbell Shoulder Press": ["shoulders", "triceps"],
+    "Seated Bicep Curl": ["biceps"],
+    "Dumbbell Incline Press": ["chest", "shoulders", "triceps"],
+    "Machine Abs": ["core"]
+}
+
+ranges = {
+    "chest": (10, 20),
+    "back": (12, 20),
+    "quads": (10, 18),
+    "hamstrings": (8, 16),
+    "shoulders": (8, 16),
+    "biceps": (6, 14),
+    "triceps": (6, 14),
+    "glutes": (8, 16),
+    "core": (8, 12)
+}
+
+# -------------------------------------------------
+# Build DAILY → WEEKLY aggregation inside month
+# -------------------------------------------------
+month_df["week_start"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+
+def build_week(df_in):
+    rows = []
+    for _, r in df_in.iterrows():
+        muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
+        split_sets = r["sets"] / len(muscles)
+
+        for m in muscles:
+            rows.append({"muscle": m, "sets": split_sets})
+
+    return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
+
+week_data = []
+
+for w in sorted(month_df["week_start"].unique()):
+    wk_df = month_df[month_df["week_start"] == w]
+    wk = build_week(wk_df)
+    wk["week"] = w
+    week_data.append(wk)
+
+if not week_data:
+    st.write("No weekly data")
+    st.stop()
+
+cal_df = pd.concat(week_data)
+cal_df = cal_df[cal_df["muscle"].isin(ranges.keys())]
+
+cal_df["min"] = cal_df["muscle"].map(lambda m: ranges[m][0])
+cal_df["max"] = cal_df["muscle"].map(lambda m: ranges[m][1])
+
+def status(row):
+    if row["sets"] < row["min"]:
+        return "below"
+    elif row["sets"] > row["max"]:
+        return "above"
+    return "optimal"
+
+cal_df["status"] = cal_df.apply(status, axis=1)
+
+# -------------------------------------------------
+# CALENDAR STYLE VISUAL (weeks = rows)
+# -------------------------------------------------
+import altair as alt
+
+bars = alt.Chart(cal_df).mark_bar(color="#93c5fd").encode(
+    x=alt.X("muscle:N", title=None),
+    y=alt.Y("week:T", title="Week in Month"),
+    color=alt.Color(
+        "status:N",
+        scale=alt.Scale(
+            domain=["below", "optimal", "above"],
+            range=["#f59e0b", "#22c55e", "#ef4444"]
         )
+    ),
+    tooltip=["week", "muscle", "sets", "min", "max", "status"]
+)
 
-        range_m = alt.Chart(month_plot).mark_rule(
-            color="black",
-            strokeWidth=6
-        ).encode(
-            x="muscle:N",
-            y="min:Q",
-            y2="max:Q"
-        )
+range_bar = alt.Chart(cal_df).mark_rule(
+    color="black",
+    strokeWidth=3
+).encode(
+    x="muscle:N",
+    y="min:Q",
+    y2="max:Q"
+)
 
-        st.altair_chart(bars_m + range_m, use_container_width=True)
+st.altair_chart(bars + range_bar, use_container_width=True)
 
     # -------------------------------------------------
     # Compact reference
