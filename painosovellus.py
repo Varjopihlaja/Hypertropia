@@ -497,6 +497,7 @@ elif page == "Muscle Load":
         bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
             x=alt.X("muscle:N"),
             y="sets:Q",
+            y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
             color=alt.Color(
                 "status:N",
                 scale=alt.Scale(
