@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from supabase import create_client
 
 # =========================================================
@@ -51,13 +50,21 @@ if not check_password():
 # =========================================================
 
 def load_data():
-    return supabase.table("workouts").select("*").execute().data or []
+    try:
+        return supabase.table("workouts").select("*").execute().data or []
+    except:
+        return []
 
 def save_data(session):
     for r in session:
         supabase.table("workouts").insert(r).execute()
 
 data = load_data()
+
+def safe_df():
+    if not data:
+        return pd.DataFrame(columns=["date", "exercise", "muscle", "volume"])
+    return pd.DataFrame(data)
 
 # =========================================================
 # EXERCISES
@@ -96,8 +103,6 @@ MUSCLE = {
     "Assisted Dip": "chest"
 }
 
-ASSISTED = ["Assisted Pull-Up", "Assisted Dip"]
-
 # =========================================================
 # CORE FORMULAS
 # =========================================================
@@ -105,70 +110,7 @@ ASSISTED = ["Assisted Pull-Up", "Assisted Dip"]
 def epley_1rm(w, r):
     return w * (1 + r / 30)
 
-def pr_by_exercise(df, ex):
-    d = df[df["exercise"] == ex]
-    if d.empty:
-        return None
-    d = d.copy()
-    d["est_1rm"] = d.apply(lambda x: epley_1rm(x["weight"], x["avg_reps"]), axis=1)
-    return d["est_1rm"].max()
-
-def strength_curve(df, ex):
-    d = df[df["exercise"] == ex].copy()
-    if d.empty:
-        return None
-
-    d["date"] = pd.to_datetime(d["date"])
-    d = d.sort_values("date")
-    d["est_1rm"] = d.apply(lambda x: epley_1rm(x["weight"], x["avg_reps"]), axis=1)
-
-    return d[["date", "est_1rm"]]
-
-# =========================================================
-# PERIODIZATION
-# =========================================================
-
-def week_index(df):
-    if df is None or df.empty or "date" not in df.columns:
-        return 1
-
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    if df["date"].isna().all():
-        return 1
-
-    return ((df["date"].max() - df["date"].min()).days // 7) + 1
-
-def phase(week):
-    if week is None:
-        return "build"
-
-    cycle = week % 4
-    return "build" if cycle in [1, 2, 3] else "deload"
-
-# =========================================================
-# FATIGUE HEATMAP
-# =========================================================
-
-def fatigue_heatmap(df):
-    if df.empty:
-        return pd.DataFrame()
-
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"])
-    df["day"] = df["date"].dt.date
-
-    heat = df.groupby(["muscle", "day"])["volume"].sum().unstack().fillna(0)
-
-    return heat
-
-# =========================================================
-# PROGRESSION (SAFE)
-# =========================================================
-
 def progression(reps, rpe, weight):
-
     avg = sum(reps) / len(reps)
 
     if rpe >= 9:
@@ -183,6 +125,25 @@ def progression(reps, rpe, weight):
     return weight, "maintain"
 
 # =========================================================
+# PERIODIZATION (FIXED SAFE)
+# =========================================================
+
+def week_index(df):
+    if df.empty or "date" not in df.columns:
+        return 1
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    if df["date"].isna().all():
+        return 1
+
+    return ((df["date"].max() - df["date"].min()).days // 7) + 1
+
+def phase(w):
+    return "deload" if w % 4 == 0 else "build"
+
+# =========================================================
 # UI
 # =========================================================
 
@@ -190,8 +151,10 @@ st.title("Training System")
 
 page = st.sidebar.radio(
     "Menu",
-    ["Train", "Dashboard", "PR Tracking", "Strength Curve", "Heatmap", "Planner"]
+    ["Train", "Dashboard", "PR Tracking", "Heatmap", "Planner"]
 )
+
+df = safe_df()
 
 # =========================================================
 # TRAIN
@@ -205,28 +168,29 @@ if page == "Train":
     exercises = UPPER if split == "Upper" else LOWER
     session = []
 
-   df_data = pd.DataFrame(data) if data else pd.DataFrame()
+    st.subheader(f"Week {week_index(df)} - {phase(week_index(df))}")
 
-    week = week_index(df_data)
-    st.subheader(f"Week {week} - {phase(week)} phase")
-
-    cols = st.columns(4)
+    cols = st.columns(3)
 
     for i, ex in enumerate(exercises):
 
-        with cols[i % 4]:
+        with cols[i % 3]:
 
             st.markdown(f"### {ex}")
 
             last = next((x for x in reversed(data) if x["exercise"] == ex), None)
 
-            sets = st.number_input("Sets", 0, 6, last["sets"] if last else 3, key=ex)
+            sets = st.number_input(
+                "Sets", 0, 6,
+                last["sets"] if last else 3,
+                key=f"{ex}_sets"
+            )
 
             if sets == 0:
                 continue
 
             reps = []
-            last_reps = last["reps_list"] if last else [10]*sets
+            last_reps = last["reps_list"] if last else [10] * sets
 
             for i2 in range(sets):
                 reps.append(
@@ -238,13 +202,17 @@ if page == "Train":
                     )
                 )
 
-            rpe = st.slider("RPE", 1, 10, 8, key=ex+"_r")
+            rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_r")
 
-            weight = st.number_input("Weight", 0.0, 300.0, last["weight"] if last else 20.0, key=ex+"_w")
+            weight = st.number_input(
+                "Weight", 0.0, 300.0,
+                last["weight"] if last else 20.0,
+                key=f"{ex}_w"
+            )
 
             new_w, msg = progression(reps, rpe, weight)
 
-            st.info(msg)
+            st.caption(msg)
             st.success(round(new_w, 1))
 
             session.append({
@@ -253,10 +221,10 @@ if page == "Train":
                 "muscle": MUSCLE[ex],
                 "sets": sets,
                 "reps_list": reps,
-                "avg_reps": sum(reps)/len(reps),
+                "avg_reps": sum(reps) / len(reps),
                 "rpe": rpe,
                 "weight": weight,
-                "volume": sum(reps)*weight
+                "volume": sum(reps) * weight
             })
 
     if st.button("Save"):
@@ -269,13 +237,13 @@ if page == "Train":
 
 elif page == "Dashboard":
 
-    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
-
     if not df.empty:
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
         st.line_chart(df.groupby("date")["volume"].sum())
         st.bar_chart(df.groupby("muscle")["volume"].sum())
+    else:
+        st.write("No data")
 
 # =========================================================
 # PR TRACKING
@@ -283,32 +251,14 @@ elif page == "Dashboard":
 
 elif page == "PR Tracking":
 
-    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
-
     if not df.empty:
-
-        st.subheader("Estimated PRs (Epley 1RM)")
+        df["est_1rm"] = df.apply(lambda x: epley_1rm(x["weight"], x["avg_reps"]), axis=1)
 
         for ex in df["exercise"].unique():
-            pr = pr_by_exercise(df, ex)
-            st.write(ex, "→", round(pr, 1) if pr else "no data")
-
-# =========================================================
-# STRENGTH CURVE
-# =========================================================
-
-elif page == "Strength Curve":
-
-    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
-
-    if not df.empty:
-
-        ex = st.selectbox("Exercise", df["exercise"].unique())
-
-        curve = strength_curve(df, ex)
-
-        if curve is not None:
-            st.line_chart(curve.set_index("date"))
+            pr = df[df["exercise"] == ex]["est_1rm"].max()
+            st.write(ex, "→", round(pr, 1))
+    else:
+        st.write("No data")
 
 # =========================================================
 # HEATMAP
@@ -316,12 +266,15 @@ elif page == "Strength Curve":
 
 elif page == "Heatmap":
 
-    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
-
     if not df.empty:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["day"] = df["date"].dt.date
 
-        heat = fatigue_heatmap(df)
+        heat = df.groupby(["muscle", "day"])["volume"].sum().unstack().fillna(0)
+
         st.dataframe(heat)
+    else:
+        st.write("No data")
 
 # =========================================================
 # PLANNER
@@ -329,11 +282,8 @@ elif page == "Heatmap":
 
 elif page == "Planner":
 
-    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
-
     if not df.empty:
-
-        st.subheader("Muscle load balance")
-
         bal = df.groupby("muscle")["volume"].sum()
         st.bar_chart(bal)
+    else:
+        st.write("No data")
