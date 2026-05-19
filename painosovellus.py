@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import calendar
+import numpy as np
 from datetime import datetime, timedelta
 from supabase import create_client
 
@@ -41,7 +41,6 @@ def check_password():
             st.error("Wrong password")
 
     return False
-
 
 if not check_password():
     st.stop()
@@ -88,25 +87,15 @@ def session_summary(df):
     }).reset_index()
 
 def weekly_fatigue(df):
-    """TRUE fatigue proxy = rolling weekly volume"""
-    if df.empty:
-        return pd.DataFrame()
-
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
     return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
 
 def weekly_exercise_volume(df):
-    if df.empty:
-        return pd.DataFrame()
-
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
     return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
 
 def day_meta(summary_df):
@@ -118,10 +107,11 @@ def day_meta(summary_df):
         }
     return meta
 
+# =========================================================
+# FORECAST (REAL vs NEXT WEEK)
+# =========================================================
 
-import numpy as np
-
-def forecast_next_week(series_df, x_col, y_col):
+def forecast(series_df, x_col, y_col):
     df2 = series_df.copy().dropna()
     if len(df2) < 2:
         return df2, None
@@ -133,7 +123,7 @@ def forecast_next_week(series_df, x_col, y_col):
 
     slope = np.polyfit(x, y, 1)[0]
 
-    future_x = np.arange(len(df2), len(df2)+7)
+    future_x = np.arange(len(df2), len(df2) + 7)
     future_y = y[-1] + slope * (future_x - len(df2) + 1)
 
     future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
@@ -170,13 +160,11 @@ MUSCLE = {
 }
 
 # =========================================================
-# STEP + PROGRESSION
+# PROGRESSION
 # =========================================================
 
 def get_step(ex):
-    if "chest supported machine row" in ex.lower():
-        return 1.25
-    return 2.5
+    return 1.25 if "machine row" in ex.lower() else 2.5
 
 def snap(w, step):
     return round(round(w / step) * step, 2)
@@ -223,11 +211,11 @@ st.title("Training System")
 
 page = st.sidebar.radio(
     "Menu",
-    ["Train","Dashboard","1RM Tracking","Heatmap","Planner","Progression"]
+    ["Train","Dashboard","1RM Tracking","Muscle Load","Fatigue Planner","Progression"]
 )
 
 # =========================================================
-# TRAIN (UNCHANGED CORE)
+# TRAIN
 # =========================================================
 
 if page == "Train":
@@ -290,7 +278,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (UNCHANGED)
+# DASHBOARD
 # =========================================================
 
 elif page == "Dashboard":
@@ -322,6 +310,7 @@ elif page == "Dashboard":
     grid = pd.date_range(grid_start, grid_end)
 
     cols = st.columns(7)
+
     for i,d in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
         cols[i].markdown(f"**{d}**")
 
@@ -353,7 +342,6 @@ elif page == "Dashboard":
 
     st.line_chart(summary.set_index("date")["volume"])
 
-
 # =========================================================
 # 1RM
 # =========================================================
@@ -379,20 +367,49 @@ elif page == "1RM Tracking":
                 st.write(ex, round(d["est"].max(),1))
 
 # =========================================================
-# HEATMAP
+# MUSCLE LOAD (REPLACES HEATMAP)
 # =========================================================
 
-elif page == "Heatmap":
+elif page == "Muscle Load":
 
-    st.title("Weekly Muscle Load Distribution")
+    st.title("Muscle Strength & Load Distribution")
 
     st.markdown("""
-    ### 📊 What this shows
-    This is NOT a calendar heatmap.
+    ### What this shows
+    This replaces the old heatmap.
 
-    It shows:
-    - how much total weekly volume each muscle receives
-    - imbalance detection between upper and lower body
+    It represents:
+    - total mechanical load per muscle group
+    - imbalance between upper and lower body
+    - which muscles are currently dominating training stimulus
+    """)
+
+    col1, col2 = st.columns(2)
+
+    upper = df[df["muscle"] != "legs"].groupby("muscle")["volume"].sum()
+    lower = df[df["muscle"] == "legs"].groupby("muscle")["volume"].sum()
+
+    with col1:
+        st.subheader("Upper Body Strength Load")
+        st.bar_chart(upper)
+
+    with col2:
+        st.subheader("Lower Body Strength Load")
+        st.bar_chart(lower)
+
+# =========================================================
+# FATIGUE PLANNER
+# =========================================================
+
+elif page == "Fatigue Planner":
+
+    st.title("Fatigue Curves with Forecast")
+
+    st.markdown("""
+    ### What this shows
+    - Solid line = actual weekly training load (fatigue)
+    - Dotted line = projected next 7 days trend
+    - Used to detect overreaching or undertraining
     """)
 
     weekly = weekly_fatigue(df)
@@ -401,70 +418,31 @@ elif page == "Heatmap":
         st.write("No data")
         st.stop()
 
-    left, right = st.columns(2)
+    left,right = st.columns(2)
+
+    for col, muscle_filter, title in [
+        (left, "upper", "Upper Body Fatigue"),
+        (right, "lower", "Lower Body Fatigue")
+    ]:
+        pass
+
+    upper = weekly[weekly["muscle"] != "legs"].groupby("week")["volume"].sum().reset_index()
+    lower = weekly[weekly["muscle"] == "legs"].groupby("week")["volume"].sum().reset_index()
+
+    hist_u, fut_u = forecast(upper, "week", "volume")
+    hist_l, fut_l = forecast(lower, "week", "volume")
 
     with left:
-        st.subheader("Upper Muscle Load")
-
-        upper = weekly[weekly["muscle"] != "legs"]
-        chart = upper.groupby("muscle")["volume"].sum()
-        st.bar_chart(chart)
-
-    with right:
-        st.subheader("Lower Muscle Load")
-
-        lower = weekly[weekly["muscle"] == "legs"]
-        chart = lower.groupby("muscle")["volume"].sum()
-        st.bar_chart(chart)
-
-# =========================================================
-# PLANNER (FIXED: FATIGUE CURVES)
-# =========================================================
-
-elif page == "Planner":
-
-    st.title("Fatigue Curves (Weekly Training Load)")
-
-    st.markdown("""
-    ### 📊 What this shows
-    This is your **fatigue accumulation over time**.
-
-    - Rising curve → accumulating fatigue
-    - Flat curve → maintenance
-    - Dropping curve → recovery phase
-    """)
-
-    weekly = weekly_fatigue(df)
-
-    if weekly.empty:
-        st.write("No data")
-        st.stop()
-
-    left, right = st.columns(2)
-
-    with left:
-        st.subheader("Upper Body Fatigue")
-
-        upper = weekly[weekly["muscle"] != "legs"]
-        upper_ts = upper.groupby("week")["volume"].sum().reset_index()
-
-        hist, future = forecast_next_week(upper_ts, "week", "volume")
-
-        st.line_chart(hist.set_index("week"))
-        if future is not None:
-            st.line_chart(future.set_index("week"))
+        st.subheader("Upper Body")
+        st.line_chart(hist_u.set_index("week")["volume"])
+        if fut_u is not None:
+            st.line_chart(fut_u.set_index("week")["volume"])
 
     with right:
-        st.subheader("Lower Body Fatigue")
-
-        lower = weekly[weekly["muscle"] == "legs"]
-        lower_ts = lower.groupby("week")["volume"].sum().reset_index()
-
-        hist, future = forecast_next_week(lower_ts, "week", "volume")
-
-        st.line_chart(hist.set_index("week"))
-        if future is not None:
-            st.line_chart(future.set_index("week"))
+        st.subheader("Lower Body")
+        st.line_chart(hist_l.set_index("week")["volume"])
+        if fut_l is not None:
+            st.line_chart(fut_l.set_index("week")["volume"])
 
 # =========================================================
 # PROGRESSION
@@ -472,7 +450,7 @@ elif page == "Planner":
 
 elif page == "Progression":
 
-    st.title("Strength Progression (with Forecast)")
+    st.title("Strength Progression vs Forecast")
 
     weekly = weekly_exercise_volume(df)
 
@@ -488,17 +466,15 @@ elif page == "Progression":
     d = weekly[weekly["exercise"]==ex].sort_values("week")
 
     st.markdown("""
-    ### 📈 What this shows
-    - Blue line = real performance
-    - Extension = predicted next 7 days
-    - Helps detect stagnation or overload
+    ### What this shows
+    - Blue = actual progression
+    - Orange = predicted next trend
+    - Helps evaluate overload efficiency
     """)
 
-    hist, future = forecast_next_week(d, "week", "volume")
+    hist, future = forecast(d, "week", "volume")
 
     st.line_chart(hist.set_index("week")["volume"])
 
     if future is not None:
         st.line_chart(future.set_index("week")["volume"])
-
-    st.dataframe(d)
