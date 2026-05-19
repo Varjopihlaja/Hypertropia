@@ -1,64 +1,275 @@
-# NEXT SESSION RECOMMENDATION (FIXED LOGIC)
-# =========================
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from supabase import create_client
 
-def get_step(ex):
+# =========================================================
+# CONFIG
+# =========================================================
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+APP_PASSWORD = st.secrets["APP_PASSWORD"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+st.set_page_config(layout="wide")
+
+# =========================================================
+# COACH MODE SETTINGS
+# =========================================================
+
+COACH_MODE = "hypertrophy"
+
+def get_target_reps():
+    if COACH_MODE == "strength":
+        return (4, 8)
+    return (8, 12)
+
+def get_progression_step(ex):
     return 1.25 if "machine row" in ex.lower() else 2.5
-if page == "Progression" and d is not None and not d.empty:
 
-step = get_step(ex)
-    def get_step(ex):
-        return 1.25 if "machine row" in ex.lower() else 2.5
+# =========================================================
+# AUTH
+# =========================================================
 
-last_weight = float(last["weight"])
-last_reps = float(last["avg_reps"])
-last_rpe = float(last["rpe"])
-    last = d.iloc[-1]
+def check_password():
+    if "auth" not in st.session_state:
+        st.session_state.auth = False
 
-# target zone (hypertrophy logic)
-target_low = 8
-target_high = 12
-    step = get_step(ex)
+    if st.session_state.auth:
+        return True
 
-next_weight = last_weight
-    last_weight = float(last["weight"])
-    last_reps = float(last["avg_reps"])
-    last_rpe = float(last["rpe"])
+    st.title("Login")
 
-# RULE 1: too easy → increase weight
-if last_reps > target_high and last_rpe <= 8:
-    next_weight += step
-    # target zone (hypertrophy logic)
-    target_low = 8
-    target_high = 12
+    with st.form("login"):
+        pw = st.text_input("Password", type="password")
+        ok = st.form_submit_button("Login")
 
-# RULE 2: too hard → decrease weight
-elif last_reps < target_low or last_rpe >= 9:
-    next_weight -= step
-    next_weight = last_weight
+    if ok:
+        if pw == APP_PASSWORD:
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Wrong password")
 
-# RULE 3: perfect zone → small progression
-else:
-    next_weight += step * 0.5
-    # RULE 1: too easy → increase weight
-    if last_reps > target_high and last_rpe <= 8:
-        next_weight += step
+    return False
 
-    # RULE 2: too hard → decrease weight
-    elif last_reps < target_low or last_rpe >= 9:
-        next_weight -= step
+if not check_password():
+    st.stop()
 
-    # RULE 3: perfect zone → small progression
-    else:
-        next_weight += step * 0.5
+# =========================================================
+# DATA
+# =========================================================
 
-# safety clamp (prevents weird drift)
-next_weight = max(1.0, round(next_weight, 1))
-    # safety clamp (prevents weird drift)
-    next_weight = max(1.0, round(next_weight, 1))
+def load_data():
+    res = supabase.table("workouts").select("*").execute()
+    return res.data or []
 
-st.markdown("### Suggested Next Session")
-st.write(f"Recommended weight: **{next_weight:.1f} kg**")
-st.write("Target: 8–12 reps @ RPE 7–9")
-    st.markdown("### Suggested Next Session")
-    st.write(f"Recommended weight: **{next_weight:.1f} kg**")
-    st.write("Target: 8–12 reps @ RPE 7–9")
+def save_data(session):
+    for r in session:
+        supabase.table("workouts").insert(r).execute()
+
+data = load_data()
+
+def safe_df():
+    if not data:
+        return pd.DataFrame(columns=[
+            "date","exercise","muscle",
+            "sets","reps_list","avg_reps",
+            "rpe","weight","volume"
+        ])
+    return pd.DataFrame(data)
+
+df = safe_df()
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def session_summary(df):
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    return df.groupby("date").agg({
+        "volume": "sum",
+        "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
+    }).reset_index()
+
+def weekly_fatigue(df):
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
+
+# =========================================================
+# FORECAST
+# =========================================================
+
+def forecast(series_df, x_col, y_col):
+    df2 = series_df.copy().dropna()
+    if len(df2) < 2:
+        return df2, None
+
+    df2 = df2.sort_values(x_col)
+
+    x = np.arange(len(df2))
+    y = df2[y_col].values
+
+    slope = np.polyfit(x, y, 1)[0]
+
+    future_x = np.arange(len(df2), len(df2) + 7)
+    future_y = y[-1] + slope * (future_x - len(df2) + 1)
+
+    future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
+
+    future = pd.DataFrame({
+        x_col: future_dates,
+        y_col: future_y
+    })
+
+    return df2, future
+
+# =========================================================
+# FATIGUE PLANNER (UPDATED)
+# =========================================================
+
+elif page == "Fatigue Planner":
+    st.title("Fatigue Curves with Forecast")
+st.title("Fatigue Monitor (Improved)")
+
+    weekly = weekly_fatigue(df)
+    if weekly.empty:
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+view = st.selectbox("Time window", ["1 Week", "1 Month", "All Time"])
+
+    # =========================
+    # FILTER WINDOW
+    # =========================
+if view == "1 Week":
+cutoff = pd.Timestamp.today() - pd.Timedelta(days=7)
+elif view == "1 Month":
+@@ -156,18 +24,44 @@ def forecast(series_df, x_col, y_col):
+
+if d.empty:
+st.warning("No data in this period.")
+        st.stop()
+st.stop()
+
+    left, right = st.columns(2)
+    # =========================
+    # DAILY LOAD
+    # =========================
+daily = d.groupby("date")["volume"].sum().reset_index()
+daily = daily.sort_values("date")
+
+    # fatigue model
+    daily["acute"] = daily["volume"].rolling(7, min_periods=1).mean()
+    daily["chronic"] = daily["volume"].rolling(28, min_periods=1).mean()
+
+    upper = weekly[weekly["muscle"] != "legs"].groupby("week")["volume"].sum().reset_index()
+    lower = weekly[weekly["muscle"] == "legs"].groupby("week")["volume"].sum().reset_index()
+    # =========================
+    # FATIGUE MODEL
+    # =========================
+    def rolling_mean(x, w):
+        return x.rolling(w, min_periods=1).mean()
+
+    hist_u, fut_u = forecast(upper, "week", "volume")
+    hist_l, fut_l = forecast(lower, "week", "volume")
+    daily["acute"] = rolling_mean(daily["volume"], 7)
+    daily["chronic"] = rolling_mean(daily["volume"], 28)
+
+    with left:
+        st.subheader("Upper Body")
+        st.line_chart(hist_u.set_index("week")["volume"])
+        if fut_u is not None:
+            st.line_chart(fut_u.set_index("week")["volume"])
+daily["fatigue_index"] = daily["acute"] / daily["chronic"].replace(0, np.nan)
+daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
+
+    with right:
+        st.subheader("Lower Body")
+        st.line_chart(hist_l.set_index("week")["volume"])
+        if fut_l is not None:
+            st.line_chart(fut_l.set_index("week")["volume"])
+    # =========================
+    # GUIDELINES
+    # =========================
+def zone(x):
+if x < 0.8:
+return "under"
+@@ -179,6 +73,9 @@ def zone(x):
+
+daily["zone"] = daily["fatigue_index"].apply(zone)
+
+    # =========================
+    # METRICS
+    # =========================
+latest = daily.iloc[-1]
+
+col1, col2, col3 = st.columns(3)
+@@ -194,23 +91,48 @@ def zone(x):
+elif latest["fatigue_index"] < 0.8:
+st.info("Low training stimulus")
+
+    # =========================
+    # CHART (SINGLE FIGURE)
+    # =========================
+import altair as alt
+
+    base = alt.Chart(daily).encode(x="date:T")
+    base = alt.Chart(daily).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%d.%m.%Y"))
+    )
+
+    load_line = base.mark_line(color="blue", strokeWidth=2).encode(
+        y="volume:Q",
+        tooltip=["date", "volume"]
+    )
+
+    load_line = base.mark_line(color="blue").encode(y="volume:Q")
+    fatigue_line = base.mark_line(color="red").encode(y="fatigue_index:Q")
+    fatigue_line = base.mark_line(color="red", strokeWidth=2).encode(
+        y="fatigue_index:Q",
+        tooltip=["date", "fatigue_index"]
+    )
+
+    guideline = pd.DataFrame({
+        "y": [0.8, 1.3, 1.6],
+        "label": ["low", "optimal", "high"]
+    })
+
+    rules = alt.Chart(pd.DataFrame({"y":[0.8,1.3,1.6]})).mark_rule(
+        strokeDash=[4,4]
+    ).encode(y="y:Q")
+    rules = alt.Chart(guideline).mark_rule(strokeDash=[4,4]).encode(
+        y="y:Q"
+    )
+
+st.altair_chart(load_line + fatigue_line + rules, use_container_width=True)
+
+st.markdown("""
+   ### Fatigue Guidelines
+    - < 0.8 → Undertraining  
+    - 0.8 – 1.3 → Optimal  
+    - 1.3 – 1.6 → High fatigue  
+    - > 1.6 → Overreaching / deload
+    - **< 0.8** → Undertraining  
+    - **0.8 – 1.3** → Optimal range  
+    - **1.3 – 1.6** → High fatigue  
+    - **> 1.6** → Overreaching / deload needed  
+   """)
+
+
+#################################################
+# PROGRESSION
+#################################################
+
+elif page == "Progression":
+st.title("Strength Progression Intelligence")
