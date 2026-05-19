@@ -597,19 +597,43 @@ elif page == "Fatigue Planner":
         st.stop()
 
     # =========================
-    # DAILY LOAD
+    # DAILY LOAD (FIXED PER MUSCLE TIME SERIES)
     # =========================
-    daily = d.groupby(["date", "muscle"])["volume"].sum().reset_index()
-    daily = daily.sort_values("date")
+    
+    d = d.copy()
+    d["date"] = pd.to_datetime(d["date"])
+    
+    # create full date range
+    full_dates = pd.date_range(d["date"].min(), d["date"].max())
+    
+    muscles = d["muscle"].unique()
+    
+    # expand to full grid (critical fix)
+    expanded = []
+    
+    for m in muscles:
+        tmp = d[d["muscle"] == m].groupby("date")["volume"].sum().reindex(full_dates, fill_value=0)
+        tmp = tmp.reset_index()
+        tmp.columns = ["date", "volume"]
+        tmp["muscle"] = m
+        expanded.append(tmp)
+    
+    daily = pd.concat(expanded).sort_values(["muscle", "date"])
 
-    def rolling_mean(x, w):
-        return x.rolling(w, min_periods=1).mean()
+# =========================
+# FATIGUE MODEL (NOW CORRECT)
+# =========================
 
-    daily["acute"] = daily.groupby("muscle")["volume"].transform(lambda x: rolling_mean(x, 7))
-    daily["chronic"] = daily.groupby("muscle")["volume"].transform(lambda x: rolling_mean(x, 28))
+daily["acute"] = daily.groupby("muscle")["volume"].transform(
+    lambda x: x.rolling(7, min_periods=1).mean()
+)
 
-    daily["fatigue_index"] = daily["acute"] / daily["chronic"].replace(0, np.nan)
-    daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
+daily["chronic"] = daily.groupby("muscle")["volume"].transform(
+    lambda x: x.rolling(28, min_periods=1).mean()
+)
+
+daily["fatigue_index"] = daily["acute"] / daily["chronic"].replace(0, np.nan)
+daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
 
     # =========================
     # ZONES
