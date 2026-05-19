@@ -380,8 +380,6 @@ elif page == "Muscle Load":
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
-    # ---------------- CONFIG ----------------
-
     EX_MAP = {
         "Back Squat": ["quads","glutes","core"],
         "RDL": ["hamstrings","glutes","back"],
@@ -410,21 +408,38 @@ elif page == "Muscle Load":
     }
 
     color_scale = alt.Scale(
-        domain=["below","optimal","above"],
-        range=["#f59e0b","#22c55e","#ef4444"]
+        domain=["below", "optimal", "above"],
+        range=["#f59e0b", "#22c55e", "#ef4444"]
     )
 
+    # =========================================================
+    # SAFE BUILD FUNCTION (FIXED KEYERROR)
+    # =========================================================
     def build_df(in_df):
         rows = []
+
         for _, r in in_df.iterrows():
             muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
             split = r["sets"] / len(muscles)
+
             for m in muscles:
                 rows.append({"muscle": m, "sets": split})
-        return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
+        # IMPORTANT FIX: avoid empty DataFrame crash
+        if not rows:
+            return pd.DataFrame(columns=["muscle", "sets"])
+
+        return (
+            pd.DataFrame(rows)
+            .groupby("muscle", as_index=False)["sets"]
+            .sum()
+        )
+
+    # =========================================================
+    # CHART BUILDER
+    # =========================================================
     def prepare_plot(plot_df):
-        if plot_df.empty:
+        if plot_df is None or plot_df.empty:
             return None
 
         plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
@@ -461,12 +476,12 @@ elif page == "Muscle Load":
 
         return (bars + range_bar).properties(height=180)
 
-    # ---------------- WEEK ----------------
-
+    # =========================================================
+    # WEEK VIEW (UNCHANGED)
+    # =========================================================
     if view == "Week":
 
         df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
         weeks = sorted(df["week"].dropna().unique())
 
         if not weeks:
@@ -486,27 +501,24 @@ elif page == "Muscle Load":
         if chart:
             st.altair_chart(chart, use_container_width=True)
 
-    # ---------------- MONTH ----------------
-
+    # =========================================================
+    # MONTH VIEW (STACKED FULL WEEK ROWS — FIXED)
+    # =========================================================
     else:
 
         months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-
-        if not months:
-            st.stop()
-
         selected_month = st.selectbox("Select month", months)
 
         start = pd.to_datetime(selected_month + "-01")
         end = start + pd.offsets.MonthEnd(1)
 
-        # Expand to full weeks (Mon–Sun)
+        # Align to full Mon–Sun weeks
         grid_start = start - pd.Timedelta(days=start.weekday())
         grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
 
         all_days = pd.date_range(grid_start, grid_end)
 
-        # Split into weeks
+        # split into full week rows (7 days each)
         weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
 
         st.subheader(start.strftime("%B %Y"))
@@ -516,12 +528,13 @@ elif page == "Muscle Load":
             week_start = w[0]
             week_end = w[-1]
 
+            # readable label like 27.4 – 3.5
             label = f"{week_start.day}.{week_start.month} – {week_end.day}.{week_end.month}"
             st.markdown(f"### {label}")
 
             week_df = df[(df["date"] >= week_start) & (df["date"] <= week_end)]
-
             plot_df = build_df(week_df)
+
             chart = prepare_plot(plot_df)
 
             if chart:
