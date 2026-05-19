@@ -107,6 +107,34 @@ def day_meta(summary_df):
         }
     return meta
 
+def build_cycles(df):
+    """
+    Detects Lower / Upper / Rest repeating structure
+    based on chronological order of sessions.
+    """
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.sort_values("date")
+
+    # Assign cycle pattern index
+    pattern = ["Lower", "Upper", "Rest"]
+
+    cycle_ids = []
+    cycle_index = 0
+
+    for i in range(len(df)):
+        cycle_ids.append(cycle_index)
+        if (i + 1) % 3 == 0:
+            cycle_index += 1
+
+    df["cycle"] = cycle_ids
+    df["cycle_phase"] = [pattern[i % 3] for i in range(len(df))]
+
+    return df
+
+cycle_df = build_cycles(df)
+
 # =========================================================
 # FORECAST (REAL vs NEXT WEEK)
 # =========================================================
@@ -377,24 +405,42 @@ elif page == "Muscle Load":
     st.title("Weekly Muscle Volume")
 
     # -------------------------------------------------
-    # Weekly selector (dd.mm.yyyy)
+    # Cycle builder (Lower / Upper / Rest)
     # -------------------------------------------------
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    def build_cycles(df):
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.sort_values("date")
 
-    weeks = sorted(df["week"].dropna().unique())
+        pattern = ["Lower", "Upper", "Rest"]
 
-    if len(weeks) == 0:
+        cycle_ids = []
+        cycle_index = 0
+
+        for i in range(len(df)):
+            cycle_ids.append(cycle_index)
+            if (i + 1) % 3 == 0:
+                cycle_index += 1
+
+        df["cycle"] = cycle_ids
+        df["cycle_phase"] = [pattern[i % 3] for i in range(len(df))]
+
+        return df
+
+    cycle_df = build_cycles(df)
+
+    # -------------------------------------------------
+    # Cycle selector (instead of week)
+    # -------------------------------------------------
+    cycles = sorted(cycle_df["cycle"].unique())
+
+    if len(cycles) == 0:
         st.write("No data")
         st.stop()
 
-    selected_week = st.selectbox(
-        "Select week",
-        weeks,
-        format_func=lambda x: x.strftime("%d.%m.%Y")
-    )
+    selected_cycle = st.selectbox("Select training cycle", cycles)
 
-    week_df = df[df["week"] == selected_week]
+    week_df = cycle_df[cycle_df["cycle"] == selected_cycle]
 
     # -------------------------------------------------
     # Multi-muscle contribution model
@@ -442,7 +488,7 @@ elif page == "Muscle Load":
     plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
 
     if plot_df.empty:
-        st.write("No muscle data for this week")
+        st.write("No muscle data for this cycle")
         st.stop()
 
     plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
@@ -461,18 +507,17 @@ elif page == "Muscle Load":
     plot_df["status"] = plot_df.apply(status, axis=1)
 
     # -------------------------------------------------
-    # Bars (color-coded)
+    # Bars
     # -------------------------------------------------
     bars = alt.Chart(plot_df).mark_bar().encode(
         x=alt.X(
             "muscle:N",
-            title=None,
-            axis=alt.Axis(labelFontSize=16, titleFontSize=16)
+            axis=alt.Axis(labelFontSize=16)
         ),
         y=alt.Y(
             "sets:Q",
-            title="Weekly Sets",
-            axis=alt.Axis(labelFontSize=14, titleFontSize=16)
+            title="Cycle Sets",
+            axis=alt.Axis(labelFontSize=14)
         ),
         color=alt.Color(
             "status:N",
@@ -486,7 +531,7 @@ elif page == "Muscle Load":
     )
 
     # -------------------------------------------------
-    # Target range (thick black min → max bar)
+    # Thick black range bar (min → max)
     # -------------------------------------------------
     range_bar = alt.Chart(plot_df).mark_rule(
         color="black",
@@ -497,9 +542,7 @@ elif page == "Muscle Load":
         y2="max:Q"
     )
 
-    chart = bars + range_bar
-
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(bars + range_bar, use_container_width=True)
 
     # -------------------------------------------------
     # Compact reference
