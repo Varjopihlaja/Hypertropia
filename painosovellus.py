@@ -489,61 +489,52 @@ elif page == "Muscle Load":
         if chart:
             st.altair_chart(chart, use_container_width=True)
 
-    # =========================================================
-    # MONTH VIEW (TRUE GRID WITH WEEK CELLS)
-    # =========================================================
-    else:
+   # =========================================================
+# MONTH VIEW (STACKED WEEK VIEWS — CORRECT)
+# =========================================================
+else:
 
-        months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-        selected_month = st.selectbox("Select month", months)
+    months = sorted(df["date"].dt.to_period("M").astype(str).unique())
+    selected_month = st.selectbox("Select month", months)
 
-        # Month boundaries
-        start = pd.to_datetime(selected_month + "-01")
-        end = (start + pd.offsets.MonthEnd(1))
+    # Month boundaries
+    start = pd.to_datetime(selected_month + "-01")
+    end = start + pd.offsets.MonthEnd(1)
 
-        # Expand to full Mon–Sun grid (like Dashboard)
-        grid_start = start - pd.Timedelta(days=start.weekday())
-        grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
+    # Expand to full weeks (Mon–Sun)
+    grid_start = start - pd.Timedelta(days=start.weekday())
+    grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
 
-        all_days = pd.date_range(grid_start, grid_end)
+    all_days = pd.date_range(grid_start, grid_end)
 
-        # Split into weeks (rows)
-        weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
+    # Split into weeks
+    weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
 
-        for w in weeks:
+    # Month header
+    st.subheader(start.strftime("%B %Y"))
 
-            week_start = w[0]
-            week_end = w[-1]
+    for w in weeks:
 
-            # Filter df for this week
-            week_df = df[(df["date"] >= week_start) & (df["date"] <= week_end)]
+        week_start = w[0]
+        week_end = w[-1]
 
-            plot_df = build_df(week_df)
-            chart = prepare_plot(plot_df)
+        # Week label like: 27.4–3.5
+        label = f"{week_start.day}.{week_start.month} – {week_end.day}.{week_end.month}"
+        st.markdown(f"### {label}")
 
-            # Row layout (7 columns like calendar)
-            cols = st.columns(7)
+        # SAME DATA LOGIC AS WEEK VIEW
+        week_df = df[(df["date"] >= week_start) & (df["date"] <= week_end)]
 
-            for i, d in enumerate(w):
-                with cols[i]:
+        plot_df = build_df(week_df)
 
-                    in_month = start.date() <= d.date() <= end.date()
+        chart = prepare_plot(plot_df)
 
-                    # Day label
-                    if in_month:
-                        st.markdown(f"**{d.day}**")
-                    else:
-                        st.markdown(f"<span style='color:#9ca3af'>{d.day}</span>", unsafe_allow_html=True)
+        if chart:
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.write("No data")
 
-                    # ONLY show chart once per row (center cell)
-                    if i == 3:
-                        if chart:
-                            st.altair_chart(chart, use_container_width=True)
-                        else:
-                            st.write("")
-
-                    else:
-                        st.write("")
+        st.divider()
 # =========================================================
 # FATIGUE + PROGRESSION (unchanged)
 # =========================================================
