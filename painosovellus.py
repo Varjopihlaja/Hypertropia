@@ -438,21 +438,108 @@ elif page == "Muscle Load":
         week_df = df[df["week"] == selected_week]
         plot_df = build_df(week_df)
 
-    else:
+else:
 
-        months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-        selected_month = st.selectbox("Select month", months)
+    st.subheader("Monthly Calendar View")
 
-        month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
-        month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    months = sorted(df["date"].dt.to_period("M").astype(str).unique())
+    selected_month = st.selectbox("Select month", months)
 
-        week_blocks = []
-        for w in sorted(month_df["week"].unique()):
-            wk = build_df(month_df[month_df["week"] == w])
-            wk["week"] = w
-            week_blocks.append(wk)
+    month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
+    month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
 
-        plot_df = pd.concat(week_blocks)
+    if month_df.empty:
+        st.stop()
+
+    # -------------------------------------------------
+    # Build FULL month starting from day 1
+    # -------------------------------------------------
+    first_day = month_df["date"].min().replace(day=1)
+    last_day = (first_day + pd.offsets.MonthEnd(1)).date()
+
+    days = pd.date_range(first_day, last_day, freq="D")
+
+    # Split into weeks (rows of 7)
+    weeks = [days[i:i+7] for i in range(0, len(days), 7)]
+
+    # -------------------------------------------------
+    # Build day → muscle load mapping
+    # -------------------------------------------------
+    def day_load(day_df):
+        if day_df.empty:
+            return None
+
+        d = build_df(day_df)
+        d = d[d["muscle"].isin(ranges.keys())]
+
+        if d.empty:
+            return None
+
+        d["min"] = d["muscle"].map(lambda m: ranges[m][0])
+        d["max"] = d["muscle"].map(lambda m: ranges[m][1])
+
+        def status(row):
+            if row["sets"] < row["min"]:
+                return "below"
+            elif row["sets"] > row["max"]:
+                return "above"
+            return "optimal"
+
+        d["status"] = d.apply(status, axis=1)
+        return d
+
+    # -------------------------------------------------
+    # Render grid (like Dashboard)
+    # -------------------------------------------------
+    for week in weeks:
+
+        cols = st.columns(7)
+
+        for i, d in enumerate(week):
+
+            day = d.date()
+            col = cols[i]
+
+            day_df = month_df[month_df["date"].dt.date == day]
+            load = day_load(day_df)
+
+            if load is None:
+                box = f"""
+                <div style="border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;
+                padding:8px;min-height:120px;text-align:center;color:#9ca3af">
+                    <div style="font-size:18px">{day.day}</div>
+                    <div style="font-size:12px">Rest</div>
+                </div>
+                """
+            else:
+
+                bars_html = ""
+
+                for _, r in load.iterrows():
+                    color = (
+                        "#22c55e" if r["status"] == "optimal"
+                        else "#f59e0b" if r["status"] == "below"
+                        else "#ef4444"
+                    )
+
+                    width = min(100, (r["sets"] / r["max"]) * 100)
+
+                    bars_html += f"""
+                    <div style="margin:2px 0">
+                        <div style="background:{color};height:6px;width:{width}%;
+                        border-radius:4px"></div>
+                    </div>
+                    """
+
+                box = f"""
+                <div style="border:1px solid #ccc;border-radius:10px;background:white;
+                padding:8px;min-height:120px">
+                    <div style="font-size:18px;text-align:center">{day.day}</div>
+                    {bars_html}
+                </div>
+                """
+
+            col.markdown(box, unsafe_allow_html=True)
 
     if plot_df.empty:
         st.stop()
