@@ -50,10 +50,7 @@ if not check_password():
 # =========================================================
 
 def load_data():
-    try:
-        return supabase.table("workouts").select("*").execute().data or []
-    except:
-        return []
+    return supabase.table("workouts").select("*").execute().data or []
 
 def save_data(session):
     for r in session:
@@ -67,21 +64,21 @@ def safe_df():
     return pd.DataFrame(data)
 
 # =========================================================
-# EXERCISES
+# EXERCISES (RENAMED)
 # =========================================================
 
 UPPER = [
     "Assisted Pull-Up",
     "Assisted Dip",
-    "Row",
-    "Shoulder Press",
-    "Incline Press",
-    "Bicep Curl",
-    "Abs"
+    "Chest Supported Machine Row",
+    "Dumbbell Shoulder Press",
+    "Dumbbell Incline Press",
+    "Seated Bicep Curl",
+    "Machine Abs"
 ]
 
 LOWER = [
-    "Squat",
+    "Back Squat",
     "RDL",
     "Bulgarian Split Squat",
     "Leg Extension",
@@ -89,22 +86,24 @@ LOWER = [
 ]
 
 MUSCLE = {
-    "Squat": "legs",
+    "Back Squat": "legs",
     "RDL": "legs",
     "Bulgarian Split Squat": "legs",
     "Leg Extension": "legs",
     "Hip Abduction": "glutes",
-    "Row": "back",
-    "Shoulder Press": "shoulders",
-    "Incline Press": "chest",
-    "Bicep Curl": "arms",
-    "Abs": "core",
+
+    "Chest Supported Machine Row": "back",
+    "Dumbbell Incline Press": "chest",
+    "Dumbbell Shoulder Press": "shoulders",
+    "Seated Bicep Curl": "arms",
+    "Machine Abs": "core",
+
     "Assisted Pull-Up": "back",
     "Assisted Dip": "chest"
 }
 
 # =========================================================
-# CORE FORMULAS
+# CORE
 # =========================================================
 
 def epley_1rm(w, r):
@@ -125,23 +124,10 @@ def progression(reps, rpe, weight):
     return weight, "maintain"
 
 # =========================================================
-# PERIODIZATION (FIXED SAFE)
+# SAFE DF
 # =========================================================
 
-def week_index(df):
-    if df.empty or "date" not in df.columns:
-        return 1
-
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    if df["date"].isna().all():
-        return 1
-
-    return ((df["date"].max() - df["date"].min()).days // 7) + 1
-
-def phase(w):
-    return "deload" if w % 4 == 0 else "build"
+df = safe_df()
 
 # =========================================================
 # UI
@@ -154,10 +140,8 @@ page = st.sidebar.radio(
     ["Train", "Dashboard", "PR Tracking", "Heatmap", "Planner"]
 )
 
-df = safe_df()
-
 # =========================================================
-# TRAIN
+# TRAIN (RESTORED 4 COLUMN GRID)
 # =========================================================
 
 if page == "Train":
@@ -168,20 +152,21 @@ if page == "Train":
     exercises = UPPER if split == "Upper" else LOWER
     session = []
 
-    st.subheader(f"Week {week_index(df)} - {phase(week_index(df))}")
+    st.subheader("Training Session")
 
-    cols = st.columns(3)
+    cols = st.columns(4)   # BACK TO 4 BOXES PER ROW
 
     for i, ex in enumerate(exercises):
 
-        with cols[i % 3]:
+        with cols[i % 4]:
 
             st.markdown(f"### {ex}")
 
             last = next((x for x in reversed(data) if x["exercise"] == ex), None)
 
             sets = st.number_input(
-                "Sets", 0, 6,
+                "Sets",
+                0, 6,
                 last["sets"] if last else 3,
                 key=f"{ex}_sets"
             )
@@ -205,7 +190,8 @@ if page == "Train":
             rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_r")
 
             weight = st.number_input(
-                "Weight", 0.0, 300.0,
+                "Weight",
+                0.0, 300.0,
                 last["weight"] if last else 20.0,
                 key=f"{ex}_w"
             )
@@ -283,7 +269,6 @@ elif page == "Heatmap":
 elif page == "Planner":
 
     if not df.empty:
-        bal = df.groupby("muscle")["volume"].sum()
-        st.bar_chart(bal)
+        st.bar_chart(df.groupby("muscle")["volume"].sum())
     else:
         st.write("No data")
