@@ -129,14 +129,23 @@ def strength_curve(df, ex):
 # =========================================================
 
 def week_index(df):
-    df["date"] = pd.to_datetime(df["date"])
-    return ((df["date"].max() - df["date"].min()).days // 7) + 1 if not df.empty else 1
+    if df is None or df.empty or "date" not in df.columns:
+        return 1
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    if df["date"].isna().all():
+        return 1
+
+    return ((df["date"].max() - df["date"].min()).days // 7) + 1
 
 def phase(week):
-    cycle = week % 4
-    if cycle in [1, 2, 3]:
+    if week is None:
         return "build"
-    return "deload"
+
+    cycle = week % 4
+    return "build" if cycle in [1, 2, 3] else "deload"
 
 # =========================================================
 # FATIGUE HEATMAP
@@ -196,7 +205,10 @@ if page == "Train":
     exercises = UPPER if split == "Upper" else LOWER
     session = []
 
-    st.subheader(f"Week {week_index(pd.DataFrame(data))} - {phase(week_index(pd.DataFrame(data)))} phase")
+   df_data = pd.DataFrame(data) if data else pd.DataFrame()
+
+    week = week_index(df_data)
+    st.subheader(f"Week {week} - {phase(week)} phase")
 
     cols = st.columns(4)
 
@@ -257,7 +269,7 @@ if page == "Train":
 
 elif page == "Dashboard":
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
 
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
@@ -271,7 +283,7 @@ elif page == "Dashboard":
 
 elif page == "PR Tracking":
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
 
     if not df.empty:
 
@@ -287,7 +299,7 @@ elif page == "PR Tracking":
 
 elif page == "Strength Curve":
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
 
     if not df.empty:
 
@@ -304,7 +316,7 @@ elif page == "Strength Curve":
 
 elif page == "Heatmap":
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
 
     if not df.empty:
 
@@ -317,7 +329,7 @@ elif page == "Heatmap":
 
 elif page == "Planner":
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data) if data else pd.DataFrame() if data else pd.DataFrame()
 
     if not df.empty:
 
