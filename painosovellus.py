@@ -95,8 +95,8 @@ UPPER = [
 ]
 
 LOWER = [
+        "RDL",
     "Back Squat",
-    "RDL",
     "Bulgarian Split Squat",
     "Leg Extension",
     "Hip Abduction"
