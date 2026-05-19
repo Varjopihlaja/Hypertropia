@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import calendar
 from datetime import datetime
 from supabase import create_client
 
@@ -96,6 +97,18 @@ def session_summary(df):
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
 
+
+def day_meta(summary_df):
+    """map date -> volume + upper/lower flag"""
+    meta = {}
+    for _, r in summary_df.iterrows():
+        date = r["date"].date()
+        meta[date] = {
+            "volume": float(r["volume"]),
+            "muscle": r["muscle"]
+        }
+    return meta
+
 # =========================================================
 # EXERCISES
 # =========================================================
@@ -134,7 +147,7 @@ MUSCLE = {
 }
 
 # =========================================================
-# WEIGHT SYSTEM
+# WEIGHT SYSTEM (unchanged)
 # =========================================================
 
 def get_step(ex, weight):
@@ -158,7 +171,7 @@ def snap(weight, step):
     return float(round(round(weight / step) * step, 1))
 
 # =========================================================
-# PROGRESSION
+# PROGRESSION (unchanged)
 # =========================================================
 
 def progression(ex, reps, rpe, weight):
@@ -178,7 +191,7 @@ def progression(ex, reps, rpe, weight):
     return weight, "maintain"
 
 # =========================================================
-# RECOMMENDED WEIGHT
+# RECOMMENDED WEIGHT (unchanged)
 # =========================================================
 
 def recommended_weight(ex):
@@ -196,7 +209,7 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# PAGE ROUTING
+# UI
 # =========================================================
 
 st.title("Training System")
@@ -207,7 +220,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN
+# TRAIN (unchanged)
 # =========================================================
 
 if page == "Train":
@@ -286,42 +299,85 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (CALENDAR)
+# DASHBOARD (CALENDAR GRID)
 # =========================================================
 
 elif page == "Dashboard":
 
-    st.title("📅 Training Calendar View")
+    st.title("Training Calendar")
 
     if df.empty:
         st.write("No data")
+        st.stop()
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    summary = session_summary(df)
+    meta = day_meta(summary)
+
+    view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
+
+    today = pd.Timestamp.today().date()
+
+    if view == "1 Week":
+        start = today - pd.Timedelta(days=6)
+        dates = pd.date_range(start, today)
+    elif view == "1 Month":
+        start = today.replace(day=1)
+        dates = pd.date_range(start, periods=calendar.monthrange(today.year, today.month)[1])
     else:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        summary = session_summary(df)
+        start = summary["date"].min().date()
+        end = summary["date"].max().date()
+        dates = pd.date_range(start, end)
 
-        view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
+    # normalize
+    date_list = [d.date() for d in dates]
 
-        now = pd.Timestamp.today()
+    cols = st.columns(7)
 
-        if view == "1 Week":
-            summary = summary[summary["date"] >= now - pd.Timedelta(days=7)]
-        elif view == "1 Month":
-            summary = summary[summary["date"] >= now - pd.Timedelta(days=30)]
+    for i, d in enumerate(date_list):
 
-        for _, row in summary.sort_values("date", ascending=False).iterrows():
+        col = cols[i % 7]
 
-            label = "Lower" if row["muscle"] == "legs" else "Upper"
-            color = "🔵" if label == "Lower" else "🟢"
+        if d in meta:
+            vol = meta[d]["volume"]
+            muscle = meta[d]["muscle"]
 
-            st.markdown(
-                f"""
-                ### {color} {row['date'].date()} — {label} Day  
-                **Total Volume:** {round(row['volume'], 1)} kg  
-                """
-            )
+            label = "Lower" if muscle == "legs" else "Upper"
+            color = "#ffdddd" if label == "Lower" else "#dde8ff"
 
-        st.divider()
-        st.line_chart(summary.set_index("date")["volume"])
+            box = f"""
+            <div style="
+                background-color:{color};
+                padding:10px;
+                border-radius:10px;
+                text-align:center;
+                min-height:90px;
+            ">
+                <div><b>{d.day}</b></div>
+                <div>{label}</div>
+                <div>{round(vol,1)} kg</div>
+            </div>
+            """
+
+        else:
+            box = f"""
+            <div style="
+                background-color:#f3f3f3;
+                padding:10px;
+                border-radius:10px;
+                text-align:center;
+                min-height:90px;
+            ">
+                <div>{d.day}</div>
+                <div>No data</div>
+            </div>
+            """
+
+        col.markdown(box, unsafe_allow_html=True)
+
+    st.divider()
+
+    st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
 # PR TRACKING
