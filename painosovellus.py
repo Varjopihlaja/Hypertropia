@@ -381,6 +381,9 @@ elif page == "Muscle Load":
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
+    # -------------------------------------------------
+    # MAPS
+    # -------------------------------------------------
     EX_MAP = {
         "Back Squat": ["quads","glutes","core"],
         "RDL": ["hamstrings","glutes","back"],
@@ -417,15 +420,31 @@ elif page == "Muscle Load":
                 rows.append({"muscle": m, "sets": split})
         return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
+    def add_status(df_in):
+        df_in["min"] = df_in["muscle"].map(lambda m: ranges[m][0])
+        df_in["max"] = df_in["muscle"].map(lambda m: ranges[m][1])
+
+        def status(row):
+            if row["sets"] < row["min"]:
+                return "below"
+            elif row["sets"] > row["max"]:
+                return "above"
+            return "optimal"
+
+        df_in["status"] = df_in.apply(status, axis=1)
+        return df_in
+
     color_scale = alt.Scale(
         domain=["below", "optimal", "above"],
         range=["#f59e0b", "#22c55e", "#ef4444"]
     )
 
+    # =========================================================
+    # WEEK VIEW
+    # =========================================================
     if view == "Week":
 
         weeks = sorted(df["week"].dropna().unique())
-
         if not weeks:
             st.stop()
 
@@ -438,146 +457,174 @@ elif page == "Muscle Load":
         week_df = df[df["week"] == selected_week]
         plot_df = build_df(week_df)
 
-else:
+        if plot_df.empty:
+            st.stop()
 
-    st.subheader("Monthly Calendar View")
+        plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+        plot_df = add_status(plot_df)
 
-    months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-    selected_month = st.selectbox("Select month", months)
+        base = alt.Chart(plot_df)
 
-    month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
-    month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
+        bars = base.mark_bar().encode(
+            x="muscle:N",
+            y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
+            color=alt.Color("status:N", scale=color_scale),
+            tooltip=["muscle","sets","min","max","status"]
+        )
 
-    if month_df.empty:
-        st.stop()
+        range_bar = base.mark_bar(
+            color="black",
+            opacity=0.25
+        ).encode(
+            x="muscle:N",
+            y="min:Q",
+            y2="max:Q"
+        )
 
-    # -------------------------------------------------
-    # Build FULL month starting from day 1
-    # -------------------------------------------------
-    first_day = month_df["date"].min().replace(day=1)
-    last_day = (first_day + pd.offsets.MonthEnd(1)).date()
+        st.altair_chart(bars + range_bar, use_container_width=True)
 
-    days = pd.date_range(first_day, last_day, freq="D")
+    # =========================================================
+    # MONTH VIEW (TRUE GRID)
+    # =========================================================
+    else:
 
-    # Split into weeks (rows of 7)
-    weeks = [days[i:i+7] for i in range(0, len(days), 7)]
+        st.subheader("Monthly Calendar View")
 
-    # -------------------------------------------------
-    # Build day → muscle load mapping
-    # -------------------------------------------------
-    def day_load(day_df):
-        if day_df.empty:
-            return None
+        months = sorted(df["date"].dt.to_period("M").astype(str).unique())
+        if not months:
+            st.stop()
 
-        d = build_df(day_df)
-        d = d[d["muscle"].isin(ranges.keys())]
+        selected_month = st.selectbox("Select month", months)
 
-        if d.empty:
-            return None
+        month_df = df[df["date"].dt.to_period("M").astype(str) == selected_month].copy()
+        month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
 
-        d["min"] = d["muscle"].map(lambda m: ranges[m][0])
-        d["max"] = d["muscle"].map(lambda m: ranges[m][1])
+        if month_df.empty:
+            st.stop()
 
-        def status(row):
-            if row["sets"] < row["min"]:
-                return "below"
-            elif row["sets"] > row["max"]:
-                return "above"
-            return "optimal"
+        # -------------------------------------------------
+        # Build month starting from 1st
+        # -------------------------------------------------
+        first_day = month_df["date"].min().replace(day=1)
+        last_day = (first_day + pd.offsets.MonthEnd(1)).date()
 
-        d["status"] = d.apply(status, axis=1)
-        return d
+        days = pd.date_range(first_day, last_day, freq="D")
 
-    # -------------------------------------------------
-    # Render grid (like Dashboard)
-    # -------------------------------------------------
-    for week in weeks:
+        weeks = [days[i:i+7] for i in range(0, len(days), 7)]
 
-        cols = st.columns(7)
+        # -------------------------------------------------
+        # SELECTED DAY STATE
+        # -------------------------------------------------
+        if "selected_day" not in st.session_state:
+            st.session_state.selected_day = None
 
-        for i, d in enumerate(week):
+        # -------------------------------------------------
+        # RENDER WEEKDAY HEADER
+        # -------------------------------------------------
+        header = st.columns(7)
+        for i, d in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
+            header[i].markdown(f"**{d}**")
 
-            day = d.date()
-            col = cols[i]
+        # -------------------------------------------------
+        # DAY LOAD
+        # -------------------------------------------------
+        def day_load(day_df):
+            if day_df.empty:
+                return None
 
-            day_df = month_df[month_df["date"].dt.date == day]
-            load = day_load(day_df)
+            d = build_df(day_df)
+            d = d[d["muscle"].isin(ranges.keys())]
 
-            if load is None:
-                box = f"""
-                <div style="border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;
-                padding:8px;min-height:120px;text-align:center;color:#9ca3af">
-                    <div style="font-size:18px">{day.day}</div>
-                    <div style="font-size:12px">Rest</div>
-                </div>
-                """
-            else:
+            if d.empty:
+                return None
 
-                bars_html = ""
+            return add_status(d)
 
-                for _, r in load.iterrows():
-                    color = (
-                        "#22c55e" if r["status"] == "optimal"
-                        else "#f59e0b" if r["status"] == "below"
-                        else "#ef4444"
-                    )
+        # -------------------------------------------------
+        # GRID
+        # -------------------------------------------------
+        for week in weeks:
 
-                    width = min(100, (r["sets"] / r["max"]) * 100)
+            cols = st.columns(7)
 
-                    bars_html += f"""
-                    <div style="margin:2px 0">
-                        <div style="background:{color};height:6px;width:{width}%;
-                        border-radius:4px"></div>
+            for i, d in enumerate(week):
+
+                day = d.date()
+                col = cols[i]
+
+                day_df = month_df[month_df["date"].dt.date == day]
+                load = day_load(day_df)
+
+                # Tooltip text
+                tooltip = ""
+                if load is not None:
+                    tooltip = "\\n".join([
+                        f"{r['muscle']}: {round(r['sets'],1)} sets"
+                        for _, r in load.iterrows()
+                    ])
+
+                if load is None:
+                    box = f"""
+                    <div title="{tooltip}" style="cursor:pointer;
+                    border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;
+                    padding:8px;min-height:120px;text-align:center;color:#9ca3af">
+                        <div style="font-size:18px">{day.day}</div>
+                        <div style="font-size:12px">Rest</div>
+                    </div>
+                    """
+                else:
+
+                    bars_html = ""
+
+                    for _, r in load.iterrows():
+                        color = (
+                            "#22c55e" if r["status"] == "optimal"
+                            else "#f59e0b" if r["status"] == "below"
+                            else "#ef4444"
+                        )
+
+                        width = min(100, (r["sets"] / r["max"]) * 100)
+
+                        bars_html += f"""
+                        <div style="margin:2px 0">
+                            <div style="background:{color};
+                            height:6px;width:{width}%;
+                            border-radius:4px"></div>
+                        </div>
+                        """
+
+                    box = f"""
+                    <div title="{tooltip}" style="cursor:pointer;
+                    border:1px solid #ccc;border-radius:10px;background:white;
+                    padding:8px;min-height:120px">
+                        <div style="font-size:18px;text-align:center">{day.day}</div>
+                        {bars_html}
                     </div>
                     """
 
-                box = f"""
-                <div style="border:1px solid #ccc;border-radius:10px;background:white;
-                padding:8px;min-height:120px">
-                    <div style="font-size:18px;text-align:center">{day.day}</div>
-                    {bars_html}
-                </div>
-                """
+                if col.button(f"{day}", key=f"btn_{day}"):
+                    st.session_state.selected_day = day
 
-            col.markdown(box, unsafe_allow_html=True)
+                col.markdown(box, unsafe_allow_html=True)
 
-    if plot_df.empty:
-        st.stop()
+        # -------------------------------------------------
+        # CLICKED DAY DETAIL
+        # -------------------------------------------------
+        if st.session_state.selected_day:
 
-    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+            st.markdown("---")
+            st.subheader(f"Details for {st.session_state.selected_day}")
 
-    plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
-    plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
+            day_df = month_df[
+                month_df["date"].dt.date == st.session_state.selected_day
+            ]
 
-    def status(row):
-        if row["sets"] < row["min"]:
-            return "below"
-        elif row["sets"] > row["max"]:
-            return "above"
-        return "optimal"
-
-    plot_df["status"] = plot_df.apply(status, axis=1)
-
-    base = alt.Chart(plot_df)
-
-    bars = base.mark_bar().encode(
-        x=alt.X("muscle:N"),
-        y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
-        color=alt.Color("status:N", scale=color_scale),
-        tooltip=["muscle","sets","min","max","status"]
-    )
-
-    range_bar = base.mark_bar(
-        color="black",
-        opacity=0.25
-    ).encode(
-        x="muscle:N",
-        y="min:Q",
-        y2="max:Q"
-    )
-
-    st.altair_chart(bars + range_bar, use_container_width=True)
-
+            if day_df.empty:
+                st.write("Rest day")
+            else:
+                st.dataframe(day_df[[
+                    "exercise","sets","reps_list","weight","volume"
+                ]])
 # =========================================================
 # FATIGUE + PROGRESSION (unchanged)
 # =========================================================
