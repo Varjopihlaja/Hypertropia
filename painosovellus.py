@@ -94,7 +94,16 @@ def session_summary(df):
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
 
+def weekly_exercise_volume(df):
+    if df.empty:
+        return pd.DataFrame()
 
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+
+    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
@@ -199,7 +208,7 @@ st.title("Training System")
 
 page = st.sidebar.radio(
     "Menu",
-    ["Train","Dashboard","1RM Tracking","Heatmap","Planner"]
+    ["Train","Dashboard","1RM Tracking","Heatmap","Planner","Progression"]
 )
 
 # =========================================================
@@ -404,3 +413,38 @@ elif page == "Planner":
     with right:
         st.subheader("Lower Volume")
         st.bar_chart(df[df["muscle"]=="legs"].groupby("muscle")["volume"].sum())
+
+        # =========================================================
+# PROGRESSION (WEEKLY OVERLOAD GRAPH)
+# =========================================================
+
+elif page == "Progression":
+
+    st.title("Weekly Progressive Overload")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    weekly = weekly_exercise_volume(df)
+
+    if weekly.empty:
+        st.write("No data")
+        st.stop()
+
+    split = st.radio("View", ["Upper", "Lower"], horizontal=True)
+
+    exercises = UPPER if split == "Upper" else LOWER
+
+    selected_ex = st.selectbox("Exercise", exercises)
+
+    data_ex = weekly[weekly["exercise"] == selected_ex].sort_values("week")
+
+    if data_ex.empty:
+        st.write("No data for this exercise")
+        st.stop()
+
+    st.subheader(selected_ex)
+
+    st.line_chart(
+        data_ex.set_index("week")["volume"]
+    )
+
+    st.dataframe(data_ex)
