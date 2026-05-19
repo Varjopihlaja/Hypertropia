@@ -370,23 +370,116 @@ elif page == "1RM Tracking":
 # MUSCLE LOAD (REPLACES HEATMAP)
 # =========================================================
 
+# =========================================================
+# MUSCLE LOAD (REPLACES HEATMAP)
+# =========================================================
+
 elif page == "Muscle Load":
+
+    import altair as alt
 
     st.title("Muscle Strength & Load Distribution")
 
+    st.markdown("""
+    ### What this shows
+    - Total **weekly sets per muscle group**
+    - Comparison against **optimal hypertrophy ranges**
+    """)
 
-    col1, col2 = st.columns(2)
+    # -----------------------------
+    # Weekly selector
+    # -----------------------------
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
-    upper = df[df["muscle"] != "legs"].groupby("muscle")["volume"].sum()
-    lower = df[df["muscle"] == "legs"].groupby("muscle")["volume"].sum()
+    weeks = sorted(df["week"].dropna().unique())
 
-    with col1:
-        st.subheader("Upper Body Strength Load")
-        st.bar_chart(upper)
+    if len(weeks) == 0:
+        st.write("No data")
+        st.stop()
 
-    with col2:
-        st.subheader("Lower Body Strength Load")
-        st.bar_chart(lower)
+    selected_week = st.selectbox(
+        "Select week",
+        weeks,
+        format_func=lambda x: x.strftime("%Y-%m-%d")
+    )
+
+    week_df = df[df["week"] == selected_week]
+
+    # -----------------------------
+    # Sets per muscle
+    # -----------------------------
+    muscle_sets = week_df.groupby("muscle")["sets"].sum().reset_index()
+
+    # Normalize naming to match guidelines (approx based on available data)
+    muscle_sets["muscle"] = muscle_sets["muscle"].replace({
+        "arms": "arms",
+        "back": "back",
+        "chest": "chest",
+        "shoulders": "shoulders",
+        "core": "core",
+        "glutes": "glutes",
+        "legs": "legs"
+    })
+
+    # -----------------------------
+    # Optimal ranges (weekly sets)
+    # -----------------------------
+    ranges = {
+        "chest": (10, 20),
+        "back": (12, 20),
+        "legs": (10, 18),      # proxy for quads/hamstrings combined
+        "shoulders": (8, 16),
+        "arms": (6, 14),
+        "glutes": (8, 16),
+        "core": (8, 12)
+    }
+
+    plot_df = muscle_sets.copy()
+    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+
+    if plot_df.empty:
+        st.write("No muscle data for this week")
+        st.stop()
+
+    plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
+    plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
+
+    # -----------------------------
+    # Chart
+    # -----------------------------
+    bar = alt.Chart(plot_df).mark_bar().encode(
+        x=alt.X("muscle:N", title="Muscle Group"),
+        y=alt.Y("sets:Q", title="Weekly Sets"),
+        tooltip=["muscle", "sets"]
+    )
+
+    rule_low = alt.Chart(plot_df).mark_rule(color="green").encode(
+        x="muscle:N",
+        y="min:Q"
+    )
+
+    rule_high = alt.Chart(plot_df).mark_rule(color="red").encode(
+        x="muscle:N",
+        y="max:Q"
+    )
+
+    st.altair_chart(bar + rule_low + rule_high, use_container_width=True)
+
+    # -----------------------------
+    # Reference guide
+    # -----------------------------
+    st.markdown("""
+    ### Optimal Hypertrophy Targets
+
+    - **Chest:** 10–20 sets/week  
+    - **Back:** 12–20 sets/week  
+    - **Legs (quads/hamstrings proxy):** 10–18 sets/week  
+    - **Shoulders:** 8–16 sets/week  
+    - **Arms:** 6–14 sets/week  
+    - **Glutes:** 8–16 sets/week  
+    - **Core/Abs:** 8–12 sets/week  
+    """)
 
 # =========================================================
 # FATIGUE PLANNER
