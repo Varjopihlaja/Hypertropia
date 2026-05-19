@@ -203,7 +203,7 @@ st.title("Training System")
 
 page = st.sidebar.radio(
     "Menu",
-    ["Train","Dashboard","PR Tracking","Heatmap","Planner"]
+    ["Train","Dashboard","1RM Tracking","Heatmap","Planner"]
 )
 
 # =========================================================
@@ -346,7 +346,7 @@ elif page == "Dashboard":
 # PR TRACKING (SPLIT)
 # =========================================================
 
-elif page=="PR Tracking":
+elif page=="1RM Tracking":
 
     df["est"]=df["weight"]*(1+df["avg_reps"]/30)
 
