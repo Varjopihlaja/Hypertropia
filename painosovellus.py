@@ -101,8 +101,7 @@ def session_summary(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        d = pd.to_datetime(r["date"]).date()
-        meta[d] = {
+        meta[pd.Timestamp(r["date"]).date()] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -208,7 +207,7 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# UI
+# PAGE ROUTING
 # =========================================================
 
 st.title("Training System")
@@ -229,6 +228,8 @@ if page == "Train":
 
     exercises = LOWER if split == "Lower" else UPPER
     session = []
+
+    st.subheader("Training Session")
 
     cols = st.columns(5)
 
@@ -296,7 +297,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (FIXED CALENDAR LOGIC)
+# DASHBOARD (FIXED WEEK + MONTH GRID)
 # =========================================================
 
 elif page == "Dashboard":
@@ -308,89 +309,96 @@ elif page == "Dashboard":
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    summary = session_summary(df).dropna()
-    summary["date"] = pd.to_datetime(summary["date"])
+    summary = session_summary(df)
     meta = day_meta(summary)
 
     view = st.radio("View", ["1 Week", "1 Month", "All"], horizontal=True)
 
     today = pd.Timestamp.today().date()
 
-    # -------------------------
-    # FIXED DATE FILTERS
-    # -------------------------
+    # =====================================================
+    # BUILD DATE RANGE (FIXED MONDAY ALIGNMENT)
+    # =====================================================
 
     if view == "1 Week":
-        start = today - pd.Timedelta(days=6)
-        end = today
-        dates = pd.date_range(start, end)
+        start = pd.Timestamp(today) - pd.Timedelta(days=6)
+        dates = pd.date_range(start=start, end=today)
 
     elif view == "1 Month":
-        start = today.replace(day=1)
-        end = pd.Timestamp(start) + pd.offsets.MonthEnd(0)
-        dates = pd.date_range(start, end)
+        first_day = pd.Timestamp(today.replace(day=1))
+        last_day = first_day + pd.offsets.MonthEnd(0)
+
+        # ALIGN TO MONDAY START
+        start = first_day - pd.Timedelta(days=first_day.weekday())
+        end = last_day + pd.Timedelta(days=(6 - last_day.weekday()))
+
+        dates = pd.date_range(start=start, end=end)
 
     else:
         start = summary["date"].min()
         end = summary["date"].max()
-        dates = pd.date_range(start, end)
+
+        start = pd.Timestamp(start) - pd.Timedelta(days=pd.Timestamp(start).weekday())
+        end = pd.Timestamp(end) + pd.Timedelta(days=(6 - pd.Timestamp(end).weekday()))
+
+        dates = pd.date_range(start=start, end=end)
+
+    # =====================================================
+    # GRID (MONDAY START ALWAYS)
+    # =====================================================
 
     st.subheader(view)
 
-    # -------------------------
-    # 7-COLUMN GRID (MON-SUN)
-    # -------------------------
-
     cols = st.columns(7)
 
+    week_day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    # headers
+    for i, d in enumerate(week_day_labels):
+        cols[i].markdown(f"**{d}**")
+
+    # blank offset handled automatically via start alignment
+
     for i, d in enumerate(dates):
+
         col = cols[i % 7]
-        d_date = d.date()
+        day = d.date()
 
-        weekday = d.strftime("%a")
-
-        if d_date in meta:
-            vol = meta[d_date]["volume"]
-            muscle = meta[d_date]["muscle"]
+        if day in meta:
+            vol = meta[day]["volume"]
+            muscle = meta[day]["muscle"]
 
             label = "Lower" if muscle == "legs" else "Upper"
-            color = "#e6f0ff" if label == "Upper" else "#ffe6e6"
+            bg = "#e8f0ff" if label == "Upper" else "#ffe8e8"
 
-            content = f"""
+            box = f"""
             <div style="
-                background-color:{color};
-                padding:10px;
-                border-radius:8px;
+                background-color:{bg};
+                padding:12px;
+                border-radius:10px;
                 text-align:center;
-                min-height:80px;
+                min-height:90px;
             ">
-                <b>{weekday}</b><br>
-                {d.day}<br>
-                {label}<br>
-                {round(vol,1)} kg
+                <div><b>{day.day}</b></div>
+                <div>{label}</div>
+                <div>{round(vol,1)}</div>
             </div>
             """
+
         else:
-            content = f"""
+            box = f"""
             <div style="
                 background-color:#f5f5f5;
-                padding:10px;
-                border-radius:8px;
+                padding:12px;
+                border-radius:10px;
                 text-align:center;
-                min-height:80px;
+                min-height:90px;
             ">
-                <b>{weekday}</b><br>
-                {d.day}<br>
-                No data
+                <div><b>{day.day}</b></div>
             </div>
             """
 
-        col.markdown(content, unsafe_allow_html=True)
-
-    st.divider()
-
-    st.line_chart(summary.set_index("date")["volume"])
+        col.markdown(box, unsafe_allow_html=True)
 
 # =========================================================
 # PR TRACKING
