@@ -573,9 +573,9 @@ elif page == "Fatigue Planner":
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
     st.markdown("""
-    **Acute load** = last 7 days training stress (what you did recently)  
-    **Chronic load** = last 28 days training baseline (your normal capacity)  
-    → Fatigue = how much recent work deviates from your baseline
+    **Acute load** = last 7 days training stress (recent fatigue)  
+    **Chronic load** = last 28 days baseline capacity  
+    **Fatigue index = Acute / Chronic (per muscle group)**
     """)
 
     view = st.selectbox("Time window", ["1 Week", "1 Month", "All Time"])
@@ -597,43 +597,30 @@ elif page == "Fatigue Planner":
         st.stop()
 
     # =========================
-    # DAILY LOAD (FIXED PER MUSCLE TIME SERIES)
+    # DAILY MUSCLE LOAD
     # =========================
-    
-    d = d.copy()
-    d["date"] = pd.to_datetime(d["date"])
-    
-    # create full date range
-    full_dates = pd.date_range(d["date"].min(), d["date"].max())
-    
-    muscles = d["muscle"].unique()
-    
-    # expand to full grid (critical fix)
-    expanded = []
-    
-    for m in muscles:
-        tmp = d[d["muscle"] == m].groupby("date")["volume"].sum().reindex(full_dates, fill_value=0)
-        tmp = tmp.reset_index()
-        tmp.columns = ["date", "volume"]
-        tmp["muscle"] = m
-        expanded.append(tmp)
-    
-    daily = pd.concat(expanded).sort_values(["muscle", "date"])
+    daily = (
+        d.groupby(["date", "muscle"])["volume"]
+        .sum()
+        .reset_index()
+        .sort_values("date")
+    )
 
-# =========================
-# FATIGUE MODEL (NOW CORRECT)
-# =========================
+    # =========================
+    # PER-MUSCLE ROLLING LOADS (FIXED)
+    # =========================
+    def compute_fatigue(x):
+        x = x.sort_values("date").copy()
 
-daily["acute"] = daily.groupby("muscle")["volume"].transform(
-    lambda x: x.rolling(7, min_periods=1).mean()
-)
+        x["acute"] = x["volume"].rolling(7, min_periods=1).mean()
+        x["chronic"] = x["volume"].rolling(28, min_periods=1).mean()
 
-daily["chronic"] = daily.groupby("muscle")["volume"].transform(
-    lambda x: x.rolling(28, min_periods=1).mean()
-)
+        x["fatigue_index"] = x["acute"] / x["chronic"].replace(0, np.nan)
+        x["fatigue_index"] = x["fatigue_index"].fillna(1.0)
 
-daily["fatigue_index"] = daily["acute"] / daily["chronic"].replace(0, np.nan)
-daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
+        return x
+
+    daily = daily.groupby("muscle", group_keys=False).apply(compute_fatigue)
 
     # =========================
     # ZONES
@@ -649,8 +636,23 @@ daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
 
     daily["zone"] = daily["fatigue_index"].apply(zone)
 
-    latest = daily.iloc[-1]
+    # =========================
+    # MUSCLE SELECTOR (FIXED VIEW)
+    # =========================
+    muscles = sorted(daily["muscle"].dropna().unique())
+    selected_muscle = st.selectbox("Select muscle group", muscles)
 
+    plot_df = daily[daily["muscle"] == selected_muscle].copy()
+
+    if plot_df.empty:
+        st.info("No data for selected muscle.")
+        st.stop()
+
+    latest = plot_df.iloc[-1]
+
+    # =========================
+    # METRICS (NOW CORRECT PER MUSCLE)
+    # =========================
     col1, col2, col3 = st.columns(3)
     col1.metric("Acute Load", round(latest["acute"], 1))
     col2.metric("Chronic Load", round(latest["chronic"], 1))
@@ -664,67 +666,30 @@ daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
         st.info("Low training stimulus")
 
     # =========================
-    # VISUALIZATION (PER MUSCLE)
+    # CHART
     # =========================
-    
     import altair as alt
-    
-    muscles = sorted(daily["muscle"].dropna().unique())
-    selected_muscle = st.selectbox("Select muscle group", muscles)
-    
-    plot_df = daily[daily["muscle"] == selected_muscle].copy()
-    
-    if plot_df.empty:
-        st.info("No data for selected muscle.")
-        st.stop()
-    
+
     base = alt.Chart(plot_df).encode(
         x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
     )
-    
-    # Fatigue index line
+
     fatigue_line = base.mark_line(point=True).encode(
         y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
         tooltip=["date", "fatigue_index", "acute", "chronic"]
     )
-    
-    # Acute & Chronic lines (scaled but visible)
-    acute_line = base.mark_line(color="red", strokeDash=[4, 4]).encode(
-        y="acute:Q",
-        tooltip=["date", "acute"]
-    )
-    
-    chronic_line = base.mark_line(color="black", strokeDash=[6, 6]).encode(
-        y="chronic:Q",
-        tooltip=["date", "chronic"]
-    )
-    
-    # Reference zones (correct fatigue index scale)
-    zones = pd.DataFrame({
-        "y": [0.8, 1.3, 1.6]
-    })
-    
-    zone_lines = alt.Chart(zones).mark_rule(strokeDash=[5, 5]).encode(
-        y="y:Q"
-    )
-    
+
+    zone_lines = alt.Chart(pd.DataFrame({"y": [0.8, 1.3, 1.6]})).mark_rule(
+        strokeDash=[5, 5]
+    ).encode(y="y:Q")
+
     st.altair_chart(
-        (fatigue_line + zone_lines).resolve_scale(y="independent"),
+        (fatigue_line + zone_lines),
         use_container_width=True
     )
-    
-    st.caption("""
-    Red dashed = acute load (recent stress)  
-    Black dashed = chronic load (baseline capacity)  
-    Fatigue line = acute ÷ chronic  
-    """)
 
-    st.markdown("""
-    ### Interpretation
-    - **Acute load** → recent stress (fatigue today)  
-    - **Chronic load** → long-term capacity (fitness baseline)  
-    - **Fatigue index > 1.3** → accumulating fatigue  
-    - **< 0.8** → undertraining / underload  
+    st.caption("""
+    Fatigue Index = Acute / Chronic (computed per muscle group)
     """)
 
 #################################################
