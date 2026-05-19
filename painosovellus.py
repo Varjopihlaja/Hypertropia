@@ -575,20 +575,64 @@ elif page == "Fatigue Planner":
             st.line_chart(fut_l.set_index("week")["volume"])
 
 elif page == "Progression":
-    st.title("Strength Progression vs Forecast")
+    st.title("Strength Progression (Actual vs Overload Trend)")
 
-    weekly = weekly_exercise_volume(df)
-    if weekly.empty:
-        st.stop()
+    import altair as alt
 
-    split = st.radio("View", ["Upper","Lower"], horizontal=True)
-    exercises = UPPER if split=="Upper" else LOWER
+    # ensure datetime
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    ex = st.selectbox("Exercise", exercises)
-    d = weekly[weekly["exercise"]==ex].sort_values("week")
+    split = st.radio("View", ["Last 30 Days", "All Time"], horizontal=True)
+    exercises = UPPER + LOWER
 
-    hist, future = forecast(d, "week", "volume")
+    def build_exercise_series(ex):
+        d = df[df["exercise"] == ex].copy()
+        if d.empty:
+            return None
 
-    st.line_chart(hist.set_index("week")["volume"])
-    if future is not None:
-        st.line_chart(future.set_index("week")["volume"])
+        d = d.sort_values("date")
+
+        # filter window
+        if split == "Last 30 Days":
+            cutoff = pd.Timestamp.today() - pd.Timedelta(days=30)
+            d = d[d["date"] >= cutoff]
+
+        if d.empty:
+            return None
+
+        # actual performance proxy (volume-based strength signal)
+        d["signal"] = d["weight"] * d["avg_reps"]
+
+        # smooth "overload trend" (rolling + linear bias)
+        d["trend"] = d["signal"].rolling(3, min_periods=1).mean()
+
+        # linear overload projection
+        x = np.arange(len(d))
+        if len(d) >= 2:
+            slope = np.polyfit(x, d["signal"], 1)[0]
+            d["projection"] = d["signal"].iloc[0] + slope * x
+        else:
+            d["projection"] = d["signal"]
+
+        return d
+
+    for ex in exercises:
+
+        d = build_exercise_series(ex)
+        if d is None:
+            continue
+
+        base = alt.Chart(d).encode(x="date:T")
+
+        actual = base.mark_line(color="blue", strokeWidth=2).encode(
+            y="signal:Q",
+            tooltip=["date", "signal"]
+        )
+
+        overload = base.mark_line(color="red", strokeWidth=2, strokeDash=[6,4]).encode(
+            y="projection:Q",
+            tooltip=["date", "projection"]
+        )
+
+        st.subheader(ex)
+        st.altair_chart(actual + overload, use_container_width=True)
