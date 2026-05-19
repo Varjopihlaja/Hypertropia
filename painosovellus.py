@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import altair as alt
 from datetime import datetime, timedelta
 from supabase import create_client
 
@@ -75,45 +74,52 @@ df = safe_df()
 # HELPERS
 # =========================================================
 
+def session_summary(df):
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df.groupby("date").agg({
+        "volume": "sum",
+        "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
+    }).reset_index()
+
 def weekly_fatigue(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
+    return df.groupby(["week","muscle"])["volume"].sum().reset_index()
 
 def weekly_exercise_volume(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
+    return df.groupby(["exercise","week"])["volume"].sum().reset_index()
 
 # =========================================================
 # FORECAST
 # =========================================================
 
-def forecast(df, x, y):
-    df = df.dropna().sort_values(x)
-    if len(df) < 2:
-        return None
+def forecast(df_in, x_col, y_col):
+    df2 = df_in.copy().dropna().sort_values(x_col)
 
-    x_vals = np.arange(len(df))
-    y_vals = df[y].values
+    if len(df2) < 3:
+        return df2, pd.DataFrame(columns=[x_col, y_col])
 
-    slope = np.polyfit(x_vals, y_vals, 1)[0]
+    x = np.arange(len(df2))
+    y = df2[y_col].values
 
-    future_x = pd.date_range(df[x].iloc[-1], periods=8, freq="D")[1:]
-    future_y = y_vals[-1] + slope * (np.arange(1, 8))
+    slope = np.polyfit(x, y, 1)[0]
 
-    hist = df.copy()
-    hist["type"] = "Actual"
+    future_x = np.arange(len(df2), len(df2)+7)
+    future_y = y[-1] + slope * (future_x - len(df2) + 1)
 
-    fut = pd.DataFrame({
-        x: future_x,
-        y: future_y,
-        "type": "Forecast"
+    future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
+
+    future = pd.DataFrame({
+        x_col: future_dates,
+        y_col: future_y
     })
 
-    return pd.concat([hist, fut])
+    return df2, future
 
 # =========================================================
 # EXERCISES
@@ -134,17 +140,49 @@ UPPER = [
 MUSCLE = {
     "Back Squat":"quadriceps",
     "RDL":"hamstrings",
-    "Bulgarian Split Squat":"quadriceps",
+    "Bulgarian Split Squat":"glutes",
     "Leg Extension":"quadriceps",
     "Hip Abduction":"glutes",
     "Chest Supported Machine Row":"back",
     "Dumbbell Incline Press":"chest",
     "Dumbbell Shoulder Press":"shoulders",
     "Seated Bicep Curl":"biceps",
-    "Machine Abs":"core",
+    "Machine Abs":"abs",
     "Assisted Pull-Up":"back",
     "Assisted Dip":"triceps"
 }
+
+# =========================================================
+# PROGRESSION
+# =========================================================
+
+def get_step(ex):
+    return 1.25 if "machine row" in ex.lower() else 2.5
+
+def snap(w, step):
+    return round(round(w / step) * step, 2)
+
+def is_assisted(ex):
+    return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
+
+def progression(ex, reps, rpe, weight):
+    avg = sum(reps)/max(len(reps),1)
+    step = get_step(ex)
+
+    if is_assisted(ex):
+        if rpe >= 9:
+            return snap(weight + step, step), "increase assistance"
+        if avg >= 12:
+            return snap(weight - step, step), "reduce assistance"
+        return weight, "maintain"
+
+    if rpe >= 9:
+        return snap(weight * 0.97, step), "fatigue drop"
+    if avg >= 12:
+        return snap(weight + step, step), "progress"
+    if avg < 8:
+        return weight, "build reps"
+    return weight, "maintain"
 
 # =========================================================
 # UI
@@ -162,112 +200,152 @@ page = st.sidebar.radio(
 # =========================================================
 
 if page == "Train":
-    st.write("Training input page (unchanged logic)")
+    date = st.date_input("Date", datetime.today())
+    split = st.radio("Split", ["Lower","Upper"], horizontal=True)
+
+    exercises = LOWER if split=="Lower" else UPPER
+    session = []
+
+    cols = st.columns(5)
+
+    for i, ex in enumerate(exercises):
+        with cols[i % 5]:
+
+            st.markdown(f"### {ex}")
+
+            last = next((x for x in reversed(data) if x["exercise"]==ex), None)
+            sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
+
+            reps = []
+            last_reps = last["reps_list"] if last else [10]*sets
+
+            rep_cols = st.columns(max(1, sets))
+
+            for i2 in range(sets):
+                with rep_cols[i2]:
+                    reps.append(
+                        st.number_input(
+                            f"{i2+1}",
+                            0,30,
+                            int(last_reps[i2]) if i2<len(last_reps) else 10,
+                            key=f"{ex}r{i2}"
+                        )
+                    )
+
+            rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
+            weight = st.number_input("Weight",0.0,300.0,step=0.5,key=f"{ex}w")
+
+            new_w,msg = progression(ex,reps,rpe,weight)
+
+            st.caption(msg)
+            st.write("Next:", new_w)
+
+            session.append({
+                "date":date.strftime("%Y-%m-%d"),
+                "exercise":ex,
+                "muscle":MUSCLE[ex],
+                "sets":sets,
+                "reps_list":reps,
+                "avg_reps":sum(reps)/max(len(reps),1),
+                "rpe":rpe,
+                "weight":weight,
+                "volume":sum(reps)*weight
+            })
+
+    if st.button("Save"):
+        save_data(session)
 
 # =========================================================
-# MUSCLE LOAD (REPLACED)
+# DASHBOARD
+# =========================================================
+
+elif page == "Dashboard":
+    st.title("Calendar")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    summary = session_summary(df)
+
+    st.line_chart(summary.set_index("date")["volume"])
+
+# =========================================================
+# 1RM
+# =========================================================
+
+elif page == "1RM Tracking":
+    df["est"] = df["weight"]*(1+df["avg_reps"]/30)
+
+    st.subheader("Upper")
+    for ex in UPPER:
+        d=df[df["exercise"]==ex]
+        if not d.empty:
+            st.write(ex, round(d["est"].max(),1))
+
+    st.subheader("Lower")
+    for ex in LOWER:
+        d=df[df["exercise"]==ex]
+        if not d.empty:
+            st.write(ex, round(d["est"].max(),1))
+
+# =========================================================
+# MUSCLE LOAD (SETS/WEEK REPLACEMENT)
 # =========================================================
 
 elif page == "Muscle Load":
 
     st.title("Weekly Sets per Muscle Group")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    df["sets"] = df["sets"].fillna(0)
+    df["muscle"] = df["exercise"].map(MUSCLE)
 
-    sets = df.groupby(["week","muscle"])["sets"].sum().reset_index()
+    weekly_sets = df.groupby("muscle")["sets"].sum().sort_values()
 
-    st.subheader("Sets per muscle per week")
-
-    chart = alt.Chart(sets).mark_line().encode(
-        x="week:T",
-        y="sets:Q",
-        color="muscle:N"
-    )
-
-    st.altair_chart(chart, use_container_width=True)
-
-    st.markdown("""
-Chest: 10–20 sets per week. Larger muscle group requiring varied angles for balanced development. Focus on pressing movements and isolation exercises to engage all portions of the chest.  
-Back: 12–20 sets per week. Includes upper, mid, and lower back muscles. Incorporate horizontal and vertical pulling movements.  
-Quadriceps: 10–18 sets per week. Squats, lunges, leg extensions.  
-Hamstrings: 8–16 sets per week. Hinge + curl movements.  
-Shoulders: 8–16 sets per week. Press + raises.  
-Biceps: 6–14 sets per week. Curls + pulls.  
-Triceps: 6–14 sets per week. Press + extensions.  
-Glutes: 8–16 sets per week. Squats, hip thrusts.  
-Calves: 8–15 sets per week. Seated + standing.  
-Abs/Core: 8–12 sets per week. Static + dynamic core work.
-""")
+    st.bar_chart(weekly_sets)
 
 # =========================================================
-# FATIGUE PLANNER (FIXED COLORS)
+# FATIGUE PLANNER (REAL + FORECAST SAME CHART)
 # =========================================================
 
 elif page == "Fatigue Planner":
 
-    st.title("Fatigue Planner")
+    st.title("Fatigue: Actual vs Forecast")
 
     weekly = weekly_fatigue(df)
 
     upper = weekly[weekly["muscle"] != "legs"].groupby("week")["volume"].sum().reset_index()
     lower = weekly[weekly["muscle"] == "legs"].groupby("week")["volume"].sum().reset_index()
 
-    def plot(data, title):
-        data = data.dropna()
+    hist_u, fut_u = forecast(upper, "week", "volume")
+    hist_l, fut_l = forecast(lower, "week", "volume")
 
-        chart = alt.Chart(data).mark_line().encode(
-            x="week:T",
-            y="volume:Q",
-            color=alt.Color("type:N", scale=alt.Scale(domain=["Actual","Forecast"],
-                                                      range=["#1f77b4","#ff7f0e"]))
-        ).properties(title=title)
+    st.subheader("Upper Body (blue = real, orange = forecast)")
+    st.line_chart(pd.concat([
+        hist_u.assign(type="real"),
+        fut_u.assign(type="forecast")
+    ]).set_index("week"))
 
-        st.altair_chart(chart, use_container_width=True)
-
-    hist_u = upper.copy()
-    hist_u["type"] = "Actual"
-    fut_u = forecast(upper, "week", "volume")
-
-    hist_l = lower.copy()
-    hist_l["type"] = "Actual"
-    fut_l = forecast(lower, "week", "volume")
-
-    if fut_u is not None:
-        plot(fut_u, "Upper Body Fatigue")
-
-    if fut_l is not None:
-        plot(fut_l, "Lower Body Fatigue")
+    st.subheader("Lower Body (blue = real, orange = forecast)")
+    st.line_chart(pd.concat([
+        hist_l.assign(type="real"),
+        fut_l.assign(type="forecast")
+    ]).set_index("week"))
 
 # =========================================================
-# PROGRESSION (FIXED)
+# PROGRESSION (REAL VS FORECAST SAME PLOT)
 # =========================================================
 
 elif page == "Progression":
 
-    st.title("Strength Progression Forecast")
+    st.title("Exercise Progression")
 
     weekly = weekly_exercise_volume(df)
 
-    split = st.radio("View", ["Upper","Lower"], horizontal=True)
-    exercises = UPPER if split=="Upper" else LOWER
+    ex = st.selectbox("Exercise", weekly["exercise"].unique())
 
-    ex = st.selectbox("Exercise", exercises)
+    d = weekly[weekly["exercise"]==ex]
 
-    d = weekly[weekly["exercise"] == ex][["week","volume"]]
+    hist, fut = forecast(d, "week", "volume")
 
-    st.subheader("Progression (Actual vs Forecast)")
-
-    result = forecast(d, "week", "volume")
-
-    if result is not None:
-
-        chart = alt.Chart(result).mark_line().encode(
-            x="week:T",
-            y="volume:Q",
-            color=alt.Color("type:N",
-                            scale=alt.Scale(range=["#1f77b4","#ff7f0e"]),
-                            legend=alt.Legend(title="Legend: Blue=Actual, Orange=Forecast"))
-        )
-
-        st.altair_chart(chart, use_container_width=True)
+    st.line_chart(pd.concat([
+        hist.assign(type="real"),
+        fut.assign(type="forecast")
+    ]).set_index("week"))
