@@ -118,6 +118,33 @@ def day_meta(summary_df):
         }
     return meta
 
+
+import numpy as np
+
+def forecast_next_week(series_df, x_col, y_col):
+    df2 = series_df.copy().dropna()
+    if len(df2) < 2:
+        return df2, None
+
+    df2 = df2.sort_values(x_col)
+
+    x = np.arange(len(df2))
+    y = df2[y_col].values
+
+    slope = np.polyfit(x, y, 1)[0]
+
+    future_x = np.arange(len(df2), len(df2)+7)
+    future_y = y[-1] + slope * (future_x - len(df2) + 1)
+
+    future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
+
+    future = pd.DataFrame({
+        x_col: future_dates,
+        y_col: future_y
+    })
+
+    return df2, future
+
 # =========================================================
 # EXERCISES
 # =========================================================
@@ -325,6 +352,15 @@ elif page == "Dashboard":
         col.markdown(box,unsafe_allow_html=True)
 
     st.line_chart(summary.set_index("date")["volume"])
+    st.markdown("""
+### 📅 Calendar View
+- Blue = Upper body session
+- Green = Lower body session
+- Grey = Rest day
+- Numbers = total training volume (kg)
+
+This view shows **training consistency over time**, not intensity.
+""")
 
 # =========================================================
 # 1RM
