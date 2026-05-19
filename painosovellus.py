@@ -101,8 +101,7 @@ def session_summary(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        d = r["date"].date()
-        meta[d] = {
+        meta[r["date"].date()] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -219,11 +218,10 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN
+# TRAIN (UNCHANGED)
 # =========================================================
 
 if page == "Train":
-
     date = st.date_input("Date", datetime.today())
     split = st.radio("Split", ["Lower", "Upper"], horizontal=True)
 
@@ -296,7 +294,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (FIXED CALENDAR)
+# DASHBOARD (NEW STRUCTURED CALENDAR)
 # =========================================================
 
 elif page == "Dashboard":
@@ -316,7 +314,7 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =====================================================
-    # RANGE
+    # RANGE SETUP
     # =====================================================
 
     if view == "1 Week":
@@ -331,29 +329,27 @@ elif page == "Dashboard":
         start = df["date"].min().date()
         end = df["date"].max().date()
 
-    dates = pd.date_range(start, end)
-
     # =====================================================
-    # MONDAY ALIGNMENT GRID
+    # MONDAY-ALIGNED GRID
     # =====================================================
 
-    grid_start = dates[0] - pd.Timedelta(days=dates[0].weekday())
-    grid_end = dates[-1] + pd.Timedelta(days=(6 - dates[-1].weekday()))
+    grid_start = start - timedelta(days=start.weekday())
+    grid_end = end + timedelta(days=(6 - end.weekday()))
 
     grid = pd.date_range(grid_start, grid_end)
+
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     cols = st.columns(7)
 
     # =====================================================
-    # TITLE
+    # HEADER (ONLY ONCE)
     # =====================================================
 
-    if view == "1 Month":
-        st.subheader(today.strftime("%B %Y"))
-    elif view == "1 Week":
-        st.subheader("Last 7 Days")
-    else:
-        st.subheader("All Logged Data")
+    for i in range(7):
+        cols[i].markdown(f"**{days[i]}**")
+
+    st.write("")
 
     # =====================================================
     # GRID
@@ -364,29 +360,29 @@ elif page == "Dashboard":
         col = cols[i % 7]
         day = d.date()
 
-        in_month = (view == "1 Month" and day.month == start.month)
-        in_range = start <= day <= end
+        in_current_range = start <= day <= end
+        in_real_month = (view != "All" and day.month == start.month)
 
-        weekday = d.strftime("%a")
-
-        if day in meta and in_range:
+        if day in meta and in_current_range:
 
             vol = meta[day]["volume"]
             muscle = meta[day]["muscle"]
 
             label = "Lower" if muscle == "legs" else "Upper"
 
-            # keep color coding
+            # base color (always grey background for real days)
+            bg = "#f3f4f6"
+            border = "#d1d5db"
+
+            # override with training type
             if label == "Lower":
-                bg = "#dbeafe"
                 border = "#3b82f6"
             else:
-                bg = "#dcfce7"
                 border = "#22c55e"
 
             # fade outside month
-            if view == "1 Month" and not in_month:
-                bg = "#f3f4f6"
+            if view == "1 Month" and not in_real_month:
+                bg = "#ffffff"
                 border = "#e5e7eb"
 
             box = f"""
@@ -398,7 +394,6 @@ elif page == "Dashboard":
                 min-height:90px;
                 text-align:center;
             ">
-                <div><b>{weekday} {day.day}</b></div>
                 <div>{label}</div>
                 <div>{round(vol,1)} kg</div>
             </div>
@@ -414,9 +409,8 @@ elif page == "Dashboard":
                 border-radius:10px;
                 min-height:90px;
                 text-align:center;
-                opacity:0.5;
+                opacity:0.35;
             ">
-                <div><b>{weekday} {day.day}</b></div>
             </div>
             """
 
