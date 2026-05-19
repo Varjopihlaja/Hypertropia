@@ -585,11 +585,14 @@ elif page == "Progression":
     # UI CONTROLS
     # =========================
     split = st.radio("View", ["Last 30 Days", "All Time"], horizontal=True)
-    ex = st.selectbox("Select exercise", UPPER + LOWER)
+    ex = st.selectbox("Select exercise", sorted(UPPER + LOWER))
 
     # =========================
-    # DATA BUILD
+    # HELPERS
     # =========================
+    def format_date(d):
+        return d.strftime("%d.%m.%Y")
+
     def build_series(ex):
         d = df[df["exercise"] == ex].copy()
         if d.empty:
@@ -597,6 +600,7 @@ elif page == "Progression":
 
         d = d.sort_values("date")
 
+        # filter window
         if split == "Last 30 Days":
             cutoff = pd.Timestamp.today() - pd.Timedelta(days=30)
             d = d[d["date"] >= cutoff]
@@ -604,15 +608,15 @@ elif page == "Progression":
         if len(d) < 2:
             return None
 
-        # core signals
+        # core signals (keep consistent with your system)
         d["signal"] = d["weight"] * d["avg_reps"]
         d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
         d["fatigue"] = d["signal"] / (1 + d["rpe"] / 10)
 
-        # smoothing
+        # smooth trend (visual stability)
         d["trend"] = d["signal"].rolling(3, min_periods=1).mean()
 
-        # linear projection (overload direction)
+        # overload projection (linear regression)
         x = np.arange(len(d))
         slope = np.polyfit(x, d["signal"], 1)[0]
         d["projection"] = d["signal"].iloc[0] + slope * x
@@ -626,28 +630,27 @@ elif page == "Progression":
         st.stop()
 
     # =========================
-    # STATS
+    # METRICS
     # =========================
     last = d.iloc[-1]
 
-    pr = d["signal"].max()
-    pr_date = d.loc[d["signal"].idxmax(), "date"]
+    pr_idx = d["signal"].idxmax()
+    pr = d.loc[pr_idx, "signal"]
+    pr_date = d.loc[pr_idx, "date"]
 
-    slope = np.polyfit(np.arange(len(d)), d["signal"], 1)[0]
+    x = np.arange(len(d))
+    slope = np.polyfit(x, d["signal"], 1)[0] if len(d) > 1 else 0
 
-    plateau_score = d["signal"].diff().abs().rolling(5).mean().iloc[-1]
+    plateau_score = d["signal"].diff().abs().rolling(5, min_periods=1).mean().iloc[-1]
 
-    deload_flag = slope < 0 and plateau_score < np.percentile(d["signal"], 20)
+    deload_flag = (slope < 0) and (plateau_score < d["signal"].mean() * 0.05)
 
-    # =========================
-    # METRICS ROW
-    # =========================
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Current Strength", round(last["signal"], 1))
     col2.metric("Estimated 1RM", round(last["e1rm"], 1))
     col3.metric("Trend Slope", round(slope, 3))
-    col4.metric("PR", f"{round(pr,1)} ({pr_date.date()})")
+    col4.metric("PR", f"{round(pr,1)} ({format_date(pr_date)})")
 
     if deload_flag:
         st.warning("⚠️ Possible stagnation detected — consider a deload week.")
@@ -655,22 +658,28 @@ elif page == "Progression":
     # =========================
     # CHART
     # =========================
-    base = alt.Chart(d).encode(x="date:T")
+    base = alt.Chart(d).encode(
+        x=alt.X("date:T", axis=alt.Axis(labelAngle=-45, format="%d.%m.%Y"))
+    )
 
     actual = base.mark_line(color="blue", strokeWidth=2).encode(
         y="signal:Q",
-        tooltip=["date", "signal", "rpe"]
+        tooltip=[
+            alt.Tooltip("date:T", title="Date"),
+            alt.Tooltip("signal:Q", title="Load"),
+            alt.Tooltip("rpe:Q", title="RPE")
+        ]
     )
 
     projected = base.mark_line(
         color="red",
         strokeWidth=2,
-        strokeDash=[6,4]
+        strokeDash=[6, 4]
     ).encode(
         y="projection:Q"
     )
 
-    strength_curve = base.mark_line(color="green", strokeWidth=2, opacity=0.6).encode(
+    e1rm_line = base.mark_line(color="green", strokeWidth=2, opacity=0.6).encode(
         y="e1rm:Q"
     )
 
@@ -683,22 +692,22 @@ elif page == "Progression":
     )
 
     st.subheader(ex)
-    st.altair_chart(actual + projected + strength_curve + pr_point, use_container_width=True)
+    st.altair_chart(actual + projected + e1rm_line + pr_point, use_container_width=True)
 
     # =========================
-    # INSIGHT PANEL
+    # INSIGHTS
     # =========================
     st.markdown("### Training Insight")
 
     if slope > 0.1:
-        st.success("Progressing well — overload is positive.")
+        st.success("Progressing well — strong overload trend.")
     elif slope > 0:
         st.info("Slow progression — consider small load increases.")
     else:
-        st.error("Declining trend — recovery or deload may be needed.")
+        st.error("Downward trend — recovery or deload may be needed.")
 
-    if plateau_score < 1:
-        st.warning("Plateau detected — variability is very low.")
+    if plateau_score < d["signal"].mean() * 0.03:
+        st.warning("Plateau detected — very low variation in performance.")
 
     # =========================
     # NEXT SESSION RECOMMENDATION
@@ -712,4 +721,4 @@ elif page == "Progression":
 
     st.markdown("### Suggested Next Session")
     st.write(f"Recommended weight: **{round(next_weight,1)} kg**")
-    st.write(f"Suggested reps: **8–12 range (auto-regulated)**")
+    st.write("Suggested reps: **8–12 (auto-regulated hypertrophy range)**")
