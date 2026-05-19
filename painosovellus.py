@@ -84,6 +84,14 @@ def to_float(x):
 # EXERCISES (fixed order: biceps before incline press)
 # =========================================================
 
+LOWER = [
+        "RDL",
+    "Back Squat",
+    "Bulgarian Split Squat",
+    "Leg Extension",
+    "Hip Abduction"
+]
+
 UPPER = [
     "Assisted Pull-Up",
     "Assisted Dip",
@@ -94,13 +102,7 @@ UPPER = [
     "Machine Abs"
 ]
 
-LOWER = [
-        "RDL",
-    "Back Squat",
-    "Bulgarian Split Squat",
-    "Leg Extension",
-    "Hip Abduction"
-]
+
 
 MUSCLE = {
     "Back Squat": "legs",
