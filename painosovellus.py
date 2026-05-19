@@ -376,6 +376,12 @@ elif page == "1RM Tracking":
 
 elif page == "Muscle Load":
 
+ # =========================================================
+# WEEKLY MUSCLE VOLUME
+# =========================================================
+
+elif page == "Weekly Muscle Volume":
+
     import altair as alt
 
     st.title("Weekly Muscle Volume")
@@ -429,7 +435,7 @@ elif page == "Muscle Load":
     plot_df = pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
     # -------------------------------------------------
-    # Ranges (kept for reference text only)
+    # Ranges
     # -------------------------------------------------
     ranges = {
         "chest": (10, 20),
@@ -449,23 +455,50 @@ elif page == "Muscle Load":
         st.write("No muscle data for this week")
         st.stop()
 
+    plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
+    plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
+
     # -------------------------------------------------
-    # Visualization (lighter blue, no bands)
+    # Bars (lighter blue + bigger text)
     # -------------------------------------------------
     bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
-        x=alt.X("muscle:N", title=None),
-        y=alt.Y("sets:Q", title="Weekly Sets"),
+        x=alt.X("muscle:N",
+                title=None,
+                axis=alt.Axis(labelFontSize=16, titleFontSize=16)),
+        y=alt.Y("sets:Q",
+                title="Weekly Sets",
+                axis=alt.Axis(labelFontSize=14, titleFontSize=16)),
         tooltip=["muscle", "sets"]
     )
 
-    st.altair_chart(bars, use_container_width=True)
+    # -------------------------------------------------
+    # Thick black target lines
+    # -------------------------------------------------
+    min_line = alt.Chart(plot_df).mark_rule(
+        color="black",
+        strokeWidth=4
+    ).encode(
+        x="muscle:N",
+        y="min:Q"
+    )
+
+    max_line = alt.Chart(plot_df).mark_rule(
+        color="black",
+        strokeWidth=4
+    ).encode(
+        x="muscle:N",
+        y="max:Q"
+    )
+
+    chart = bars + min_line + max_line
+
+    st.altair_chart(chart, use_container_width=True)
 
     # -------------------------------------------------
-    # Compact reference text
+    # Compact reference
     # -------------------------------------------------
     st.markdown("""
-**Optimal weekly sets:**  
-Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
+**Optimal weekly sets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
 """)
 # =========================================================
 # FATIGUE PLANNER
