@@ -587,12 +587,12 @@ elif page == "Muscle Load":
             tooltip=["week", "muscle", "sets", "min", "max", "status"]
         )
 
-        range_bar = alt.Chart(cal_df).mark_rule(
+        range_bar = alt.Chart(cal_df).mark_bar(
             color="black",
-            strokeWidth=4
+            opacity=0.25
         ).encode(
-            x="muscle:N",
-            y="min:Q",
+            x=alt.X("muscle:N"),
+            y=alt.Y("min:Q"),
             y2="max:Q"
         )
 
