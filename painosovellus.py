@@ -42,7 +42,6 @@ def check_password():
 
     return False
 
-
 if not check_password():
     st.stop()
 
@@ -72,84 +71,137 @@ def safe_df():
 df = safe_df()
 
 # =========================================================
-# MUSCLE MAP (FIXED: MULTI-IMPACT LOGIC)
-# =========================================================
-
-MUSCLE_MAP = {
-    "Back Squat": ["quadriceps","glutes"],
-    "RDL": ["hamstrings","glutes"],
-    "Bulgarian Split Squat": ["quadriceps","glutes"],
-    "Leg Extension": ["quadriceps"],
-    "Hip Abduction": ["glutes"],
-
-    "Chest Supported Machine Row": ["back"],
-    "Dumbbell Incline Press": ["chest","triceps"],
-    "Dumbbell Shoulder Press": ["shoulders","triceps"],
-    "Seated Bicep Curl": ["biceps"],
-    "Machine Abs": ["abs"],
-
-    "Assisted Pull-Up": ["back","biceps"],
-    "Assisted Dip": ["chest","triceps"]
-}
-
-# =========================================================
 # HELPERS
 # =========================================================
+
+def session_summary(df):
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    return df.groupby("date").agg({
+        "volume": "sum",
+        "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
+    }).reset_index()
+
+def weekly_fatigue(df):
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
 
 def weekly_exercise_volume(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["exercise","week"])["volume"].sum().reset_index()
+    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
 
-def weekly_sets(df):
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["exercise","week"])["sets"].sum().reset_index()
-
-def weekly_muscle_sets(df):
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
-    rows = []
-
-    for _, r in df.iterrows():
-        muscles = MUSCLE_MAP.get(r["exercise"], [r["muscle"]])
-        for m in muscles:
-            rows.append([r["week"], m, r["sets"]])
-
-    out = pd.DataFrame(rows, columns=["week","muscle","sets"])
-    return out.groupby(["week","muscle"])["sets"].sum().reset_index()
+def day_meta(summary_df):
+    meta = {}
+    for _, r in summary_df.iterrows():
+        meta[r["date"].date()] = {
+            "volume": float(r["volume"]),
+            "muscle": r["muscle"]
+        }
+    return meta
 
 # =========================================================
-# FORECAST
+# FORECAST (REAL vs NEXT WEEK)
 # =========================================================
 
-def forecast(df, x, y):
-    df = df.copy().dropna()
-    if len(df) < 2:
-        return df, None
+def forecast(series_df, x_col, y_col):
+    df2 = series_df.copy().dropna()
+    if len(df2) < 2:
+        return df2, None
 
-    df = df.sort_values(x)
+    df2 = df2.sort_values(x_col)
 
-    x_vals = np.arange(len(df))
-    y_vals = df[y].values
+    x = np.arange(len(df2))
+    y = df2[y_col].values
 
-    slope = np.polyfit(x_vals, y_vals, 1)[0]
+    slope = np.polyfit(x, y, 1)[0]
 
-    future_x = np.arange(len(df), len(df)+7)
-    future_y = y_vals[-1] + slope*(future_x - len(df) + 1)
+    future_x = np.arange(len(df2), len(df2) + 7)
+    future_y = y[-1] + slope * (future_x - len(df2) + 1)
 
-    future_dates = pd.date_range(df[x].iloc[-1], periods=8)[1:]
+    future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
 
     future = pd.DataFrame({
-        x: future_dates,
-        y: future_y
+        x_col: future_dates,
+        y_col: future_y
     })
 
-    return df, future
+    return df2, future
+
+# =========================================================
+# EXERCISES
+# =========================================================
+
+LOWER = ["RDL","Back Squat","Bulgarian Split Squat","Leg Extension","Hip Abduction"]
+
+UPPER = [
+    "Assisted Pull-Up",
+    "Assisted Dip",
+    "Chest Supported Machine Row",
+    "Dumbbell Shoulder Press",
+    "Seated Bicep Curl",
+    "Dumbbell Incline Press",
+    "Machine Abs"
+]
+
+MUSCLE = {
+    "Back Squat":"legs","RDL":"legs","Bulgarian Split Squat":"legs",
+    "Leg Extension":"legs","Hip Abduction":"glutes",
+    "Chest Supported Machine Row":"back","Dumbbell Incline Press":"chest",
+    "Dumbbell Shoulder Press":"shoulders","Seated Bicep Curl":"arms",
+    "Machine Abs":"core","Assisted Pull-Up":"back","Assisted Dip":"chest"
+}
+
+# =========================================================
+# PROGRESSION
+# =========================================================
+
+def get_step(ex):
+    return 1.25 if "machine row" in ex.lower() else 2.5
+
+def snap(w, step):
+    return round(round(w / step) * step, 2)
+
+def is_assisted(ex):
+    return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
+
+def progression(ex, reps, rpe, weight):
+    avg = sum(reps)/max(len(reps),1)
+    step = get_step(ex)
+    assisted = is_assisted(ex)
+
+    if assisted:
+        if rpe >= 9:
+            return snap(weight + step, step), "increase assistance"
+        if avg >= 12 and rpe <= 8:
+            return snap(weight - step, step), "reduce assistance"
+        return weight, "maintain"
+
+    if rpe >= 9:
+        return snap(weight * 0.97, step), "fatigue drop"
+    if avg >= 12:
+        return snap(weight + step, step), "progress"
+    if avg < 8:
+        return weight, "build reps"
+    return weight, "maintain"
+
+def recommended_weight(ex):
+    df_ex = df[df["exercise"] == ex]
+    if df_ex.empty:
+        return 20
+
+    last = df_ex.sort_values("date").iloc[-1]
+    est = last["weight"] * (1 + last["avg_reps"]/30)
+    target = est / (1 + 10/30)
+
+    return snap(target, get_step(ex))
 
 # =========================================================
 # UI
@@ -163,15 +215,8 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (UNCHANGED CORE)
+# TRAIN
 # =========================================================
-
-LOWER = ["RDL","Back Squat","Bulgarian Split Squat","Leg Extension","Hip Abduction"]
-UPPER = [
-    "Assisted Pull-Up","Assisted Dip","Chest Supported Machine Row",
-    "Dumbbell Shoulder Press","Seated Bicep Curl",
-    "Dumbbell Incline Press","Machine Abs"
-]
 
 if page == "Train":
     date = st.date_input("Date", datetime.today())
@@ -187,21 +232,45 @@ if page == "Train":
 
             st.markdown(f"### {ex}")
 
-            sets = st.number_input("Sets",0,6,3,key=f"{ex}s")
-            reps = [10]*sets
+            last = next((x for x in reversed(data) if x["exercise"]==ex), None)
+            rec_w = recommended_weight(ex)
+
+            sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
+
+            reps = []
+            last_reps = last["reps_list"] if last else [10]*sets
+
+            rep_cols = st.columns(max(1, sets))
+
+            for i2 in range(sets):
+                with rep_cols[i2]:
+                    reps.append(
+                        st.number_input(
+                            f"{i2+1}",
+                            0,30,
+                            int(last_reps[i2]) if i2<len(last_reps) else 10,
+                            key=f"{ex}r{i2}"
+                        )
+                    )
+
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
-            weight = st.number_input("Weight",0.0,300.0,20.0,key=f"{ex}w")
+            weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
+
+            new_w,msg = progression(ex,reps,rpe,weight)
+
+            st.caption(msg)
+            st.success(f"Next: {new_w}")
 
             session.append({
                 "date":date.strftime("%Y-%m-%d"),
                 "exercise":ex,
-                "muscle":"multi",
+                "muscle":MUSCLE[ex],
                 "sets":sets,
                 "reps_list":reps,
-                "avg_reps":10,
+                "avg_reps":sum(reps)/max(len(reps),1),
                 "rpe":rpe,
                 "weight":weight,
-                "volume":sets*weight
+                "volume":sum(reps)*weight
             })
 
     if st.button("Save"):
@@ -209,29 +278,124 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# MUSCLE LOAD (FIXED)
+# DASHBOARD
+# =========================================================
+
+elif page == "Dashboard":
+    st.title("Calendar")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    summary = session_summary(df)
+    meta = day_meta(summary)
+
+    view = st.radio("View",["Week","Month","3 Months","All"],horizontal=True)
+
+    today = datetime.today().date()
+
+    if view=="Week":
+        start = today - timedelta(days=6)
+        end = today
+    elif view=="Month":
+        start = today.replace(day=1)
+        end = (start + pd.offsets.MonthEnd(1)).date()
+    elif view=="3 Months":
+        start = (today.replace(day=1)-pd.DateOffset(months=2)).date()
+        end = today
+    else:
+        start = df["date"].min().date()
+        end = df["date"].max().date()
+
+    grid_start = start - timedelta(days=start.weekday())
+    grid_end = end + timedelta(days=(6-end.weekday()))
+    grid = pd.date_range(grid_start, grid_end)
+
+    cols = st.columns(7)
+
+    for i,d in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
+        cols[i].markdown(f"**{d}**")
+
+    for i,d in enumerate(grid):
+        col = cols[i%7]
+        day = d.date()
+
+        in_range = start <= day <= end
+
+        if day in meta and in_range:
+            vol = meta[day]["volume"]
+            label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
+            color = "#2563eb" if label=="Upper" else "#16a34a"
+
+            box = f"""
+            <div style="border:1px solid #ccc;border-radius:10px;background:{color};color:white;padding:10px;min-height:90px;text-align:center">
+                <div style="font-size:26px">{day.day}</div>
+                <div>{label}</div>
+                <div>{round(vol,1)} kg</div>
+            </div>"""
+        else:
+            box = f"""
+            <div style="border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;padding:10px;min-height:90px;text-align:center;color:#9ca3af">
+                <div style="font-size:26px">{day.day}</div>
+                <div>Rest</div>
+            </div>"""
+
+        col.markdown(box,unsafe_allow_html=True)
+
+    st.line_chart(summary.set_index("date")["volume"])
+
+# =========================================================
+# 1RM
+# =========================================================
+
+elif page == "1RM Tracking":
+
+    df["est"] = df["weight"]*(1+df["avg_reps"]/30)
+
+    left,right = st.columns(2)
+
+    with left:
+        st.subheader("Upper")
+        for ex in UPPER:
+            d=df[df["exercise"]==ex]
+            if not d.empty:
+                st.write(ex, round(d["est"].max(),1))
+
+    with right:
+        st.subheader("Lower")
+        for ex in LOWER:
+            d=df[df["exercise"]==ex]
+            if not d.empty:
+                st.write(ex, round(d["est"].max(),1))
+
+# =========================================================
+# MUSCLE LOAD (REPLACES HEATMAP)
 # =========================================================
 
 elif page == "Muscle Load":
 
-    st.title("Weekly Sets per Muscle Group")
+    st.title("Muscle Strength & Load Distribution")
 
-    m = weekly_muscle_sets(df)
+    st.markdown("""
+    ### What this shows
+    This replaces the old heatmap.
 
-    if m.empty:
-        st.write("")
-        st.stop()
+    It represents:
+    - total mechanical load per muscle group
+    - imbalance between upper and lower body
+    - which muscles are currently dominating training stimulus
+    """)
 
     col1, col2 = st.columns(2)
 
-    upper = m[m["muscle"].isin(["chest","back","shoulders","biceps","triceps","abs"])]
-    lower = m[m["muscle"].isin(["quadriceps","hamstrings","glutes"])]
+    upper = df[df["muscle"] != "legs"].groupby("muscle")["volume"].sum()
+    lower = df[df["muscle"] == "legs"].groupby("muscle")["volume"].sum()
 
     with col1:
-        st.bar_chart(upper.groupby("muscle")["sets"].sum())
+        st.subheader("Upper Body Strength Load")
+        st.bar_chart(upper)
 
     with col2:
-        st.bar_chart(lower.groupby("muscle")["sets"].sum())
+        st.subheader("Lower Body Strength Load")
+        st.bar_chart(lower)
 
 # =========================================================
 # FATIGUE PLANNER
@@ -239,30 +403,46 @@ elif page == "Muscle Load":
 
 elif page == "Fatigue Planner":
 
-    st.title("Fatigue: Real vs Forecast")
+    st.title("Fatigue Curves with Forecast")
 
-    w = weekly_exercise_volume(df)
+    st.markdown("""
+    ### What this shows
+    - Solid line = actual weekly training load (fatigue)
+    - Dotted line = projected next 7 days trend
+    - Used to detect overreaching or undertraining
+    """)
 
-    if w.empty:
+    weekly = weekly_fatigue(df)
+
+    if weekly.empty:
+        st.write("No data")
         st.stop()
 
-    for split, label in [("upper","Upper"),("lower","Lower")]:
+    left,right = st.columns(2)
 
-        st.subheader(label)
+    for col, muscle_filter, title in [
+        (left, "upper", "Upper Body Fatigue"),
+        (right, "lower", "Lower Body Fatigue")
+    ]:
+        pass
 
-        if split=="upper":
-            d = w[w["exercise"].isin(UPPER)]
-        else:
-            d = w[w["exercise"].isin(LOWER)]
+    upper = weekly[weekly["muscle"] != "legs"].groupby("week")["volume"].sum().reset_index()
+    lower = weekly[weekly["muscle"] == "legs"].groupby("week")["volume"].sum().reset_index()
 
-        ts = d.groupby("week")["volume"].sum().reset_index()
+    hist_u, fut_u = forecast(upper, "week", "volume")
+    hist_l, fut_l = forecast(lower, "week", "volume")
 
-        hist, fut = forecast(ts,"week","volume")
+    with left:
+        st.subheader("Upper Body")
+        st.line_chart(hist_u.set_index("week")["volume"])
+        if fut_u is not None:
+            st.line_chart(fut_u.set_index("week")["volume"])
 
-        st.line_chart(hist.set_index("week")["volume"], use_container_width=True)
-
-        if fut is not None:
-            st.line_chart(fut.set_index("week")["volume"], use_container_width=True)
+    with right:
+        st.subheader("Lower Body")
+        st.line_chart(hist_l.set_index("week")["volume"])
+        if fut_l is not None:
+            st.line_chart(fut_l.set_index("week")["volume"])
 
 # =========================================================
 # PROGRESSION
@@ -270,17 +450,31 @@ elif page == "Fatigue Planner":
 
 elif page == "Progression":
 
-    st.title("Progression: Real vs Forecast")
+    st.title("Strength Progression vs Forecast")
 
-    w = weekly_exercise_volume(df)
+    weekly = weekly_exercise_volume(df)
 
-    ex = st.selectbox("Exercise", UPPER+LOWER)
+    if weekly.empty:
+        st.write("No data")
+        st.stop()
 
-    d = w[w["exercise"]==ex].sort_values("week")
+    split = st.radio("View", ["Upper","Lower"], horizontal=True)
+    exercises = UPPER if split=="Upper" else LOWER
 
-    hist, fut = forecast(d,"week","volume")
+    ex = st.selectbox("Exercise", exercises)
 
-    st.line_chart(hist.set_index("week")["volume"], use_container_width=True)
+    d = weekly[weekly["exercise"]==ex].sort_values("week")
 
-    if fut is not None:
-        st.line_chart(fut.set_index("week")["volume"], use_container_width=True)
+    st.markdown("""
+    ### What this shows
+    - Blue = actual progression
+    - Orange = predicted next trend
+    - Helps evaluate overload efficiency
+    """)
+
+    hist, future = forecast(d, "week", "volume")
+
+    st.line_chart(hist.set_index("week")["volume"])
+
+    if future is not None:
+        st.line_chart(future.set_index("week")["volume"])
