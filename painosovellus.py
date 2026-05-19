@@ -321,7 +321,7 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =====================================================
-    # RANGE LOGIC
+    # FILTER RANGE
     # =====================================================
 
     if view == "1 Week":
@@ -336,63 +336,51 @@ elif page == "Dashboard":
         start = df["date"].min().date()
         end = df["date"].max().date()
 
+    # =====================================================
+    # CREATE DATE RANGE
+    # =====================================================
+
     full_range = pd.date_range(start, end)
 
     # =====================================================
-    # FORCE MONDAY GRID ALIGNMENT
+    # ALIGN TO MONDAY START (IMPORTANT FIX)
     # =====================================================
 
-    grid_start = full_range[0] - pd.Timedelta(days=full_range[0].weekday())
-    grid_end = full_range[-1] + pd.Timedelta(days=(6 - full_range[-1].weekday()))
+    first_monday = full_range[0] - pd.Timedelta(days=full_range[0].weekday())
+    last_sunday = full_range[-1] + pd.Timedelta(days=(6 - full_range[-1].weekday()))
 
-    grid = pd.date_range(grid_start, grid_end)
+    grid_range = pd.date_range(first_monday, last_sunday)
 
     cols = st.columns(7)
-
-    # =====================================================
-    # MONTH TITLE (FIXED)
-    # =====================================================
-
-    if view == "1 Month":
-        st.subheader(today.strftime("%B %Y"))
-    elif view == "1 Week":
-        st.subheader("Last 7 Days")
-    else:
-        st.subheader("All Logged Data")
 
     # =====================================================
     # CALENDAR GRID
     # =====================================================
 
-    for i, d in enumerate(grid):
+    for i, d in enumerate(grid_range):
 
         col = cols[i % 7]
-        day = d.date()
+
+        is_current_month = d.date() >= start and d.date() <= end
+
         weekday = d.strftime("%a")
 
-        in_range = start <= day <= end
+        if d.date() in meta:
 
-        if day in meta and in_range:
-
-            vol = meta[day]["volume"]
-            muscle = meta[day]["muscle"]
-
+            vol = meta[d.date()]["volume"]
+            muscle = meta[d.date()]["muscle"]
             label = "Lower" if muscle == "legs" else "Upper"
 
-            # COLOR SYSTEM (KEEPING YOUR REQUEST)
-            if label == "Lower":
-                bg = "#dbeafe"   # light blue
-                border = "#3b82f6"
+            if view == "1 Month":
+                style = "background-color:white;border:1px solid #ccc;"
             else:
-                bg = "#dcfce7"   # light green
-                border = "#22c55e"
+                style = "background-color:#f0f0f0;"
 
             box = f"""
             <div style="
-                background-color:{bg};
-                border:1px solid {border};
+                {style}
                 padding:10px;
-                border-radius:10px;
+                border-radius:8px;
                 min-height:90px;
                 text-align:center;
             ">
@@ -404,13 +392,16 @@ elif page == "Dashboard":
 
         else:
 
-            # EMPTY CELL (FIXED MONTH ALIGNMENT)
+            if view == "1 Month":
+                style = "background-color:white;border:1px solid #ddd;"
+            else:
+                style = "background-color:#fafafa;"
+
             box = f"""
             <div style="
-                background-color:white;
-                border:1px solid #e5e7eb;
+                {style}
                 padding:10px;
-                border-radius:10px;
+                border-radius:8px;
                 min-height:90px;
                 text-align:center;
                 opacity:0.5;
