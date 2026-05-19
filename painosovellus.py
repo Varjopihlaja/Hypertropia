@@ -99,7 +99,7 @@ UPPER = [
     "Assisted Pull-Up",
     "Assisted Dip",
     "Chest Supported Machine Row",
-        "Dumbbell Shoulder Press",
+    "Dumbbell Shoulder Press",
     "Seated Bicep Curl",
     "Dumbbell Incline Press",
     "Machine Abs"
