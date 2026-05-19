@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from supabase import create_client
+import json
 
 # =========================================================
 # CONFIG
@@ -54,28 +55,35 @@ def load_data():
 
 def save_data(session):
     for r in session:
+        r = dict(r)
+        r["reps_list"] = json.dumps(r["reps_list"])  # FIX SUPABASE ERROR
         supabase.table("workouts").insert(r).execute()
 
 data = load_data()
 
 def safe_df():
     if not data:
-        return pd.DataFrame(columns=["date", "exercise", "muscle", "volume"])
-    return pd.DataFrame(data)
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    if "reps_list" in df.columns:
+        df["reps_list"] = df["reps_list"].apply(
+            lambda x: json.loads(x) if isinstance(x, str) else x
+        )
+    return df
 
 df = safe_df()
 
 # =========================================================
-# EXERCISES
+# EXERCISES (FIXED ORDER)
 # =========================================================
 
 UPPER = [
     "Assisted Pull-Up",
     "Assisted Dip",
     "Chest Supported Machine Row",
+    "Seated Bicep Curl",          # MOVED UP
     "Dumbbell Shoulder Press",
     "Dumbbell Incline Press",
-    "Seated Bicep Curl",
     "Machine Abs"
 ]
 
@@ -93,11 +101,13 @@ MUSCLE = {
     "Bulgarian Split Squat": "legs",
     "Leg Extension": "legs",
     "Hip Abduction": "glutes",
+
     "Chest Supported Machine Row": "back",
     "Dumbbell Incline Press": "chest",
     "Dumbbell Shoulder Press": "shoulders",
     "Seated Bicep Curl": "arms",
     "Machine Abs": "core",
+
     "Assisted Pull-Up": "back",
     "Assisted Dip": "chest"
 }
@@ -107,66 +117,47 @@ MUSCLE = {
 # =========================================================
 
 def get_step(ex, weight):
-    ex_low = ex.lower()
+    ex = ex.lower()
 
-    if "dumbbell" in ex_low or "curl" in ex_low:
+    if "dumbbell" in ex or "curl" in ex:
         return 1.0 if weight <= 10 else 2.5
 
-    if "squat" in ex_low or "press" in ex_low or "incline" in ex_low or "rdl" in ex_low:
+    if "squat" in ex or "press" in ex or "incline" in ex:
         return 1.25
 
     return 2.5
 
 
 def snap(weight, step):
-    return round(round(weight / step) * step, 2)
+    return round(round(weight / step) * step, 1)
 
 # =========================================================
-# CONSISTENCY CHECK (NEW CORE LOGIC)
+# CONSISTENCY CHECK (IMPORTANT FIX)
 # =========================================================
 
-def exercise_history(ex):
-    hist = [x for x in data if x["exercise"] == ex]
-    hist = sorted(hist, key=lambda x: x["date"], reverse=True)
-    return hist[:5]  # last 5 sessions
-
-
-def is_consistent_progress(ex):
-    hist = exercise_history(ex)
-
-    if len(hist) < 3:
+def is_consistently_strong(df, ex):
+    d = df[df["exercise"] == ex].tail(3)
+    if len(d) < 3:
         return False
-
-    # must hit 12+ reps in ALL sets for last 3 sessions
-    for h in hist[:3]:
-        reps = h.get("reps_list", [])
-        if not reps:
-            return False
-        if not all(r >= 12 for r in reps):
-            return False
-
-    return True
+    return all(x >= 12 for x in d["avg_reps"])
 
 # =========================================================
 # PROGRESSION (FIXED LOGIC)
 # =========================================================
 
-def progression(reps, rpe, weight, ex):
+def progression(reps, rpe, weight, ex, df):
 
     avg = sum(reps) / len(reps)
     step = get_step(ex, weight)
 
-    consistent = is_consistent_progress(ex)
-
-    # fatigue override
+    # fatigue
     if rpe >= 9:
-        return snap(weight - step, step), "fatigue drop"
+        return snap(weight * 0.97, step), "fatigue drop"
 
-    # ONLY increase if consistent across multiple sessions
-    if consistent and rpe <= 8:
-        return snap(weight + step, step), "progress (consistent 12+ reps)"
+    # ONLY increase if consistent over sessions
+    if avg >= 12 and rpe <= 8 and is_consistently_strong(df, ex):
+        return snap(weight + step, step), "progress (consistent)"
 
-    # build phase
     if avg < 8:
         return weight, "build reps"
 
@@ -184,7 +175,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN (5 EXERCISES PER ROW)
+# TRAIN (5 COLUMNS FIX)
 # =========================================================
 
 if page == "Train":
@@ -197,68 +188,66 @@ if page == "Train":
 
     st.subheader("Training Session")
 
-    # 5 per row (your request)
-    rows = [exercises[i:i+5] for i in range(0, len(exercises), 5)]
+    cols = st.columns(5)   # FIX: 5 CARDS PER ROW
 
-    for row in rows:
-        cols = st.columns(5)
+    for i, ex in enumerate(exercises):
 
-        for col, ex in zip(cols, row):
+        with cols[i % 5]:
 
-            with col:
+            st.markdown(f"### {ex}")
 
-                st.markdown(f"### {ex}")
+            last = next((x for x in reversed(data) if x["exercise"] == ex), None)
 
-                last = next((x for x in reversed(data) if x["exercise"] == ex), None)
+            sets = st.number_input(
+                "Sets",
+                0, 6,
+                last["sets"] if last else 3,
+                key=f"{ex}_sets"
+            )
 
-                sets = st.number_input(
-                    "Sets",
-                    0, 6,
-                    last["sets"] if last else 3,
-                    key=f"{ex}_sets"
-                )
+            if sets == 0:
+                continue
 
-                if sets == 0:
-                    continue
+            reps = []
+            last_reps = last["reps_list"] if last else [10] * sets
 
-                reps = []
-                last_reps = last["reps_list"] if last else [10] * sets
-
-                for i2 in range(sets):
-                    reps.append(
-                        st.number_input(
-                            f"S{i2+1}",
-                            0, 30,
-                            last_reps[i2] if i2 < len(last_reps) else 10,
-                            key=f"{ex}_{i2}"
-                        )
+            for i2 in range(sets):
+                reps.append(
+                    st.number_input(
+                        f"S{i2+1}",
+                        0, 30,
+                        last_reps[i2] if i2 < len(last_reps) else 10,
+                        step=1,
+                        key=f"{ex}_{i2}"
                     )
-
-                rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_r")
-
-                weight = st.number_input(
-                    "Weight",
-                    0.0, 300.0,
-                    last["weight"] if last else 20.0,
-                    key=f"{ex}_w"
                 )
 
-                new_w, msg = progression(reps, rpe, weight, ex)
+            rpe = st.slider("RPE", 1, 10, 8, key=f"{ex}_r")
 
-                st.caption(msg)
-                st.success(f"{new_w} kg")
+            weight = st.number_input(
+                "Weight",
+                0.0, 300.0,
+                value=float(last["weight"]) if last else 20.0,
+                step=get_step(ex, last["weight"] if last else 20.0),
+                key=f"{ex}_w"
+            )
 
-                session.append({
-                    "date": date.strftime("%Y-%m-%d"),
-                    "exercise": ex,
-                    "muscle": MUSCLE[ex],
-                    "sets": sets,
-                    "reps_list": reps,
-                    "avg_reps": sum(reps) / len(reps),
-                    "rpe": rpe,
-                    "weight": snap(weight, get_step(ex, weight)),
-                    "volume": sum(reps) * weight
-                })
+            new_w, msg = progression(reps, rpe, weight, ex, df)
+
+            st.caption(msg)
+            st.success(f"{new_w:.1f} kg")
+
+            session.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "exercise": ex,
+                "muscle": MUSCLE[ex],
+                "sets": sets,
+                "reps_list": reps,
+                "avg_reps": sum(reps) / len(reps),
+                "rpe": rpe,
+                "weight": weight,
+                "volume": sum(reps) * weight
+            })
 
     if st.button("Save"):
         save_data(session)
@@ -272,14 +261,13 @@ elif page == "Dashboard":
 
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
         st.line_chart(df.groupby("date")["volume"].sum())
         st.bar_chart(df.groupby("muscle")["volume"].sum())
     else:
         st.write("No data")
 
 # =========================================================
-# PR TRACKING (EPLEY 1RM)
+# PR TRACKING
 # =========================================================
 
 elif page == "PR Tracking":
