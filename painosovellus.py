@@ -83,7 +83,7 @@ def safe_df():
     return pd.DataFrame(data)
 
 df = safe_df()
-
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
 # =========================================================
 # HELPERS
 # =========================================================
@@ -93,7 +93,7 @@ def session_summary(df):
         return df
 
     df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], format="%d.%m.%Y", errors="coerce")
 
     return df.groupby("date").agg({
         "volume": "sum",
@@ -115,7 +115,7 @@ def weekly_exercise_volume(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        meta[r["date"].date()] = {
+        meta[pd.to_datetime(r["date"]).date()] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
@@ -239,7 +239,7 @@ page = st.sidebar.radio(
 # =========================================================
 
 if page == "Train":
-    date = st.date_input("Date", datetime.today())
+    date = st.date_input("Date", datetime.today()).strftime("%d.%m.%Y")
     split = st.radio("Split", ["Lower","Upper"], horizontal=True)
 
     exercises = LOWER if split=="Lower" else UPPER
@@ -282,7 +282,7 @@ if page == "Train":
             st.success(f"Next: {new_w}")
 
             session.append({
-                "date":date.strftime("%Y-%m-%d"),
+                "date": date,
                 "exercise":ex,
                 "muscle":MUSCLE[ex],
                 "sets":sets,
@@ -340,7 +340,7 @@ elif page == "Dashboard":
 
         in_range = start <= day <= end
 
-        if day in meta and in_range:
+        if pd.to_datetime(day) in meta and in_range:
             vol = meta[day]["volume"]
             label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
             color = "#2563eb" if label=="Upper" else "#16a34a"
