@@ -395,8 +395,6 @@ elif page == "1RM Tracking":
                 st.write(ex, round(d["est"].max(),1))
 
 
-# WEEKLY MUSCLE VOLUME
-# =========================================================
 # =========================================================
 # MUSCLE LOAD
 # =========================================================
@@ -408,7 +406,7 @@ elif page == "Muscle Load":
     st.title("Muscle Load")
 
     # -------------------------------------------------
-    # DATE PREP
+    # PREP
     # -------------------------------------------------
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
@@ -416,9 +414,9 @@ elif page == "Muscle Load":
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
-    # =================================================
-    # MUSCLE + RANGES
-    # =================================================
+    # -------------------------------------------------
+    # EXERCISE → MUSCLE MAP
+    # -------------------------------------------------
     EX_MAP = {
         "Back Squat": ["quads", "glutes", "core"],
         "RDL": ["hamstrings", "glutes", "back"],
@@ -455,15 +453,14 @@ elif page == "Muscle Load":
                 rows.append({"muscle": m, "sets": split_sets})
         return pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
 
-    # =================================================
-    # WEEK VIEW (MONDAY START)
-    # =================================================
+    # =========================================================
+    # WEEK VIEW
+    # =========================================================
     if view == "Week":
 
         st.subheader("Weekly Load")
 
         weeks = sorted(df["week"].dropna().unique())
-
         if len(weeks) == 0:
             st.write("No data")
             st.stop()
@@ -476,6 +473,7 @@ elif page == "Muscle Load":
 
         week_df = df[df["week"] == selected_week]
         plot_df = build_df(week_df)
+
         plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
 
         if plot_df.empty:
@@ -494,7 +492,9 @@ elif page == "Muscle Load":
 
         plot_df["status"] = plot_df.apply(status, axis=1)
 
-        bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
+        base = alt.Chart(plot_df)
+
+        bars = base.mark_bar(color="#93c5fd").encode(
             x=alt.X("muscle:N"),
             y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
             color=alt.Color(
@@ -507,12 +507,13 @@ elif page == "Muscle Load":
             tooltip=["muscle", "sets", "min", "max", "status"]
         )
 
-        range_bar = alt.Chart(plot_df).mark_rule(
+        # ✅ CORRECT RANGE (true interval, fixed scaling)
+        range_bar = base.mark_bar(
             color="black",
-            strokeWidth=6
+            opacity=0.25
         ).encode(
             x="muscle:N",
-            y="min:Q",
+            y=alt.Y("min:Q"),
             y2="max:Q"
         )
 
@@ -522,15 +523,14 @@ elif page == "Muscle Load":
 **Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
 """)
 
-    # =================================================
-    # MONTH VIEW (CALENDAR WEEK GRID)
-    # =================================================
+    # =========================================================
+    # MONTH VIEW (FIXED SCALING)
+    # =========================================================
     else:
 
         st.subheader("Monthly Calendar View")
 
         months = sorted(df["month"].dropna().unique())
-
         if len(months) == 0:
             st.write("No data")
             st.stop()
@@ -538,26 +538,18 @@ elif page == "Muscle Load":
         selected_month = st.selectbox("Select month", months)
 
         month_df = df[df["month"] == selected_month].copy()
+        month_df["date"] = pd.to_datetime(month_df["date"], errors="coerce")
+        month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
         if month_df.empty:
             st.write("No data")
             st.stop()
-
-        # IMPORTANT: full calendar month (not min/max clipped)
-        first_day = pd.to_datetime(f"{selected_month}-01")
-        last_day = (first_day + pd.offsets.MonthEnd(1))
-
-        month_df["week"] = month_df["date"].dt.to_period("W").apply(lambda r: r.start_time)
 
         week_blocks = []
         for w in sorted(month_df["week"].unique()):
             wk = build_df(month_df[month_df["week"] == w])
             wk["week"] = w
             week_blocks.append(wk)
-
-        if not week_blocks:
-            st.write("No data")
-            st.stop()
 
         cal_df = pd.concat(week_blocks)
         cal_df = cal_df[cal_df["muscle"].isin(ranges.keys())]
@@ -574,25 +566,22 @@ elif page == "Muscle Load":
 
         cal_df["status"] = cal_df.apply(status, axis=1)
 
-        bars = alt.Chart(cal_df).mark_bar(color="#93c5fd").encode(
-            x="muscle:N",
-            y="week:T",
-            color=alt.Color(
-                "status:N",
-                scale=alt.Scale(
-                    domain=["below", "optimal", "above"],
-                    range=["#f59e0b", "#22c55e", "#ef4444"]
-                )
-            ),
+        base = alt.Chart(cal_df)
+
+        bars = base.mark_bar(color="#93c5fd").encode(
+            x=alt.X("muscle:N"),
+            y=alt.Y("sets:Q", scale=alt.Scale(zero=True)),
+            color="status:N",
             tooltip=["week", "muscle", "sets", "min", "max", "status"]
         )
 
-        range_bar = alt.Chart(cal_df).mark_bar(
+        # ✅ FIXED scaling range bar
+        range_bar = base.mark_bar(
             color="black",
             opacity=0.25
         ).encode(
-            x=alt.X("muscle:N"),
-            y=alt.Y("min:Q"),
+            x="muscle:N",
+            y="min:Q",
             y2="max:Q"
         )
 
