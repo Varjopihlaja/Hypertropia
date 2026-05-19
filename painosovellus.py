@@ -512,6 +512,120 @@ elif page == "Muscle Load":
         )
 
         st.altair_chart(bars + range_bar, use_container_width=True)
+elif page == "Muscle Load":
+
+    import altair as alt
+
+    st.title("Muscle Load")
+
+    # -------------------------------------------------
+    # DATE PREP
+    # -------------------------------------------------
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
+    df["month"] = df["date"].dt.to_period("M").astype(str)
+
+    # =================================================
+    # 1) WEEKLY VIEW (MONDAY-BASED)
+    # =================================================
+    st.subheader("Weekly Load")
+
+    weeks = sorted(df["week"].dropna().unique())
+
+    if len(weeks) == 0:
+        st.write("No data")
+        st.stop()
+
+    selected_week = st.selectbox(
+        "Select week (Mon start)",
+        weeks,
+        format_func=lambda x: x.strftime("%d.%m.%Y")
+    )
+
+    week_df = df[df["week"] == selected_week]
+
+    # -------------------------------------------------
+    # Muscle mapping
+    # -------------------------------------------------
+    EX_MAP = {
+        "Back Squat": ["quads", "glutes", "core"],
+        "RDL": ["hamstrings", "glutes", "back"],
+        "Bulgarian Split Squat": ["quads", "glutes"],
+        "Leg Extension": ["quads"],
+        "Hip Abduction": ["glutes"],
+        "Assisted Pull-Up": ["back", "biceps"],
+        "Assisted Dip": ["chest", "triceps", "shoulders"],
+        "Chest Supported Machine Row": ["back", "biceps"],
+        "Dumbbell Shoulder Press": ["shoulders", "triceps"],
+        "Seated Bicep Curl": ["biceps"],
+        "Dumbbell Incline Press": ["chest", "shoulders", "triceps"],
+        "Machine Abs": ["core"]
+    }
+
+    def build_df(input_df):
+        rows = []
+        for _, r in input_df.iterrows():
+            muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
+            split_sets = r["sets"] / len(muscles)
+
+            for m in muscles:
+                rows.append({"muscle": m, "sets": split_sets})
+
+        out = pd.DataFrame(rows).groupby("muscle", as_index=False)["sets"].sum()
+        return out
+
+    plot_df = build_df(week_df)
+
+    ranges = {
+        "chest": (10, 20),
+        "back": (12, 20),
+        "quads": (10, 18),
+        "hamstrings": (8, 16),
+        "shoulders": (8, 16),
+        "biceps": (6, 14),
+        "triceps": (6, 14),
+        "glutes": (8, 16),
+        "core": (8, 12)
+    }
+
+    plot_df = plot_df[plot_df["muscle"].isin(ranges.keys())]
+
+    if not plot_df.empty:
+        plot_df["min"] = plot_df["muscle"].map(lambda m: ranges[m][0])
+        plot_df["max"] = plot_df["muscle"].map(lambda m: ranges[m][1])
+
+        def status(row):
+            if row["sets"] < row["min"]:
+                return "below"
+            elif row["sets"] > row["max"]:
+                return "above"
+            return "optimal"
+
+        plot_df["status"] = plot_df.apply(status, axis=1)
+
+        bars = alt.Chart(plot_df).mark_bar(color="#93c5fd").encode(
+            x=alt.X("muscle:N", axis=alt.Axis(labelFontSize=14)),
+            y=alt.Y("sets:Q", title="Weekly Sets"),
+            color=alt.Color(
+                "status:N",
+                scale=alt.Scale(
+                    domain=["below", "optimal", "above"],
+                    range=["#f59e0b", "#22c55e", "#ef4444"]
+                )
+            ),
+            tooltip=["muscle", "sets", "min", "max", "status"]
+        )
+
+        range_bar = alt.Chart(plot_df).mark_rule(
+            color="black",
+            strokeWidth=6
+        ).encode(
+            x="muscle:N",
+            y="min:Q",
+            y2="max:Q"
+        )
+
+        st.altair_chart(bars + range_bar, use_container_width=True)
 
     # =================================================
     # 2) MONTHLY VIEW (LONG TERM LOG)
@@ -570,6 +684,7 @@ elif page == "Muscle Load":
     st.markdown("""
 **Weekly targets:** Chest 10–20 | Back 12–20 | Quads 10–18 | Hamstrings 8–16 | Shoulders 8–16 | Arms 6–14 | Glutes 8–16 | Core 8–12
 """)
+
 # =========================================================
 # FATIGUE PLANNER
 # =========================================================
