@@ -122,21 +122,45 @@ MUSCLE = {
 # =========================================================
 
 def get_step(ex, weight):
+
     ex_low = ex.lower()
 
+    # =====================================================
+    # BARBELL (bilateral load → must increase both sides)
+    # =====================================================
+    BARBELL = ["back squat", "rdl", "bulgarian split squat"]
+
+    if any(x in ex_low for x in BARBELL):
+        return 2.5   # MUST BE EVEN TOTAL LOAD
+
+    # =====================================================
+    # PLATE LOADED (single stack or per-side machines)
+    # =====================================================
+    PLATE_LOADED = ["chest supported machine row"]
+
+    if any(x in ex_low for x in PLATE_LOADED):
+        return 1.25   # per-side loading allowed
+
+    # =====================================================
+    # DUMBBELLS / ISOLATION
+    # =====================================================
     if "dumbbell" in ex_low or "curl" in ex_low:
         return 1.0 if weight <= 10 else 2.5
 
-    if "squat" in ex_low or "press" in ex_low or "incline" in ex_low:
-        return 1.25
-
+    # =====================================================
+    # OTHER MACHINES
+    # =====================================================
     return 2.5
 
 
 def snap(weight, step):
     weight = float(weight)
     step = float(step)
-    return round(round(weight / step) * step, 1)
+
+    snapped = round(round(weight / step) * step, 2)
+
+    # force clean gym rounding (no 28.8 / 31.3 nonsense)
+    return float(round(snapped, 1))
 
 # =========================================================
 # EPLEY 1RM (FIXED)
