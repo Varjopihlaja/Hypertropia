@@ -169,7 +169,7 @@ def snap(weight, step):
     return float(round(round(weight / step) * step, 1))
 
 # =========================================================
-# ASSISTED LOGIC FIX
+# ASSISTED LOGIC
 # =========================================================
 
 def is_assisted(ex):
@@ -177,21 +177,20 @@ def is_assisted(ex):
     return "assisted pull-up" in ex or "assisted dip" in ex
 
 # =========================================================
-# PROGRESSION
+# PROGRESSION (FIXED)
 # =========================================================
 
 def progression(ex, reps, rpe, weight):
-    weight = float(weight)
     avg = sum(reps) / max(len(reps), 1)
     step = get_step(ex, weight)
 
     if is_assisted(ex):
 
         if rpe >= 9:
-            return snap(weight + step, step), "fatigue drop (more assistance)"
+            return snap(weight + step, step), "more assistance"
 
         if avg >= 12 and rpe <= 8:
-            return snap(weight - step, step), "progress (less assistance)"
+            return snap(weight - step, step), "less assistance"
 
         if avg < 8:
             return weight, "build reps"
@@ -228,25 +227,28 @@ def recommended_weight(ex):
     return snap(target, step)
 
 # =========================================================
-# WEEKLY PLAN
+# WEEKLY PLAN (ROLLING AVERAGE)
 # =========================================================
 
 def weekly_plan(ex):
-    df_ex = df[df["exercise"] == ex]
+    df_ex = df[df["exercise"] == ex].copy()
+
     if df_ex.empty:
         return "No data"
 
-    last7 = df_ex.tail(7)
+    df_ex["date"] = pd.to_datetime(df_ex["date"], errors="coerce")
+    last7 = df_ex.sort_values("date").tail(7)
+
     avg_w = last7["weight"].mean()
     avg_r = last7["avg_reps"].mean()
 
     step = get_step(ex, avg_w)
 
     if avg_r >= 12:
-        return f"{snap(avg_w + step, step)} kg (increase)"
+        return snap(avg_w + step, step)
     elif avg_r < 8:
-        return f"{snap(avg_w, step)} kg (build reps)"
-    return f"{snap(avg_w, step)} kg (maintain)"
+        return snap(avg_w, step)
+    return snap(avg_w, step)
 
 # =========================================================
 # UI
@@ -260,7 +262,7 @@ page = st.sidebar.radio(
 )
 
 # =========================================================
-# TRAIN
+# TRAIN (compact reps + colors)
 # =========================================================
 
 if page == "Train":
@@ -285,8 +287,6 @@ if page == "Train":
             last = next((x for x in reversed(data) if x["exercise"] == ex), None)
 
             rec_w = recommended_weight(ex)
-
-            st.caption(f"Weekly plan: {weekly_plan(ex)}")
 
             sets = st.number_input(
                 "Sets", 0, 6,
@@ -325,7 +325,7 @@ if page == "Train":
             new_w, msg = progression(ex, reps, rpe, weight)
 
             st.caption(msg)
-            st.success(f"Next: {new_w} kg")
+            st.success(f"Next: {new_w}")
 
             session.append({
                 "date": date.strftime("%Y-%m-%d"),
@@ -344,7 +344,7 @@ if page == "Train":
         st.success("Saved")
 
 # =========================================================
-# DASHBOARD (CALENDAR WITH BORDER FIX)
+# DASHBOARD (FIXED CALENDAR + BORDER + BUFFER DAYS)
 # =========================================================
 
 elif page == "Dashboard":
@@ -366,12 +366,15 @@ elif page == "Dashboard":
     if view == "1 Week":
         start = today - timedelta(days=6)
         end = today
+
     elif view == "1 Month":
         start = today.replace(day=1)
         end = (start + pd.offsets.MonthEnd(1)).date()
+
     elif view == "Last 3 Months":
         start = (today.replace(day=1) - pd.DateOffset(months=2)).date()
         end = today
+
     else:
         start = df["date"].min().date()
         end = df["date"].max().date()
@@ -398,6 +401,7 @@ elif page == "Dashboard":
         day = d.date()
 
         in_range = start <= day <= end
+        in_month = day.month == start.month
 
         if day in meta and in_range:
 
@@ -418,8 +422,25 @@ elif page == "Dashboard":
                 text-align:center;
             ">
                 <div style="font-size:28px;font-weight:700;">{day.day}</div>
-                <div style="font-size:13px;">{label}</div>
-                <div style="font-size:13px;">{round(vol,1)} kg</div>
+                <div>{label}</div>
+                <div>{round(vol,1)} kg</div>
+            </div>
+            """
+
+        elif in_range and in_month:
+
+            box = f"""
+            <div style="
+                background-color:#e5e7eb;
+                border:2px solid #999;
+                border-radius:12px;
+                padding:10px;
+                min-height:110px;
+                text-align:center;
+                color:#444;
+            ">
+                <div style="font-size:28px;font-weight:700;">{day.day}</div>
+                <div>Rest</div>
             </div>
             """
 
@@ -427,13 +448,13 @@ elif page == "Dashboard":
 
             box = f"""
             <div style="
-                background-color:#e5e7eb;
-                border:2px solid #bbb;
+                background-color:#f9fafb;
+                border:1px solid #e5e7eb;
                 border-radius:12px;
                 padding:10px;
                 min-height:110px;
                 text-align:center;
-                color:#6b7280;
+                color:#bbb;
             ">
                 <div style="font-size:28px;font-weight:700;">{day.day}</div>
             </div>
@@ -455,38 +476,47 @@ elif page == "PR Tracking":
             axis=1
         )
 
+        st.subheader("Estimated Strength (1RM)")
+
         for ex in df["exercise"].unique():
             pr = df[df["exercise"] == ex]["est_1rm"].max()
-            st.write(ex, "→", round(pr, 1))
+            st.metric(ex, round(pr, 1))
+
     else:
         st.write("No data")
 
 # =========================================================
-# HEATMAP (VISUAL IMPROVED)
+# HEATMAP (VISUAL)
 # =========================================================
 
 elif page == "Heatmap":
 
     if not df.empty:
-        st.subheader("Muscle Volume Overview")
+        st.subheader("Muscle Volume")
 
         for m in df["muscle"].unique():
-            total = df[df["muscle"] == m]["volume"].sum()
-            st.metric(m, f"{round(total,1)} kg")
+            val = df[df["muscle"] == m]["volume"].sum()
+            st.metric(m, f"{round(val,1)} kg")
+
     else:
         st.write("No data")
 
 # =========================================================
-# PLANNER (VISUAL + WEEKLY PLAN)
+# PLANNER (UPPER / LOWER SPLIT + WEEKLY PLAN)
 # =========================================================
 
 elif page == "Planner":
 
     if not df.empty:
-        st.subheader("Weekly Progression Plan")
+        st.subheader("Weekly Plan")
 
-        for ex in df["exercise"].unique():
-            st.markdown(f"**{ex}**")
-            st.write(weekly_plan(ex))
+        st.markdown("### Upper Body")
+        for ex in UPPER:
+            st.write(ex, "→", weekly_plan(ex))
+
+        st.markdown("### Lower Body")
+        for ex in LOWER:
+            st.write(ex, "→", weekly_plan(ex))
+
     else:
         st.write("No data")
