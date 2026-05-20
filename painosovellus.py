@@ -366,19 +366,36 @@ elif page == "Dashboard":
 
     
 
-        inner = col.container()
-
-        top = inner.columns([3, 1])
-
-        with top[0]:
-            st.markdown(f"**{day.day}**")
-
-        with top[1]:
-            if in_range:
-                if st.button("View", key=f"view_{day}"):
-                    st.session_state.selected_day = day
-
-        inner.markdown(box, unsafe_allow_html=True)
+        if day in meta and in_range:
+            vol = meta[day]["volume"]
+            label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
+            color = "#2563eb" if label=="Upper" else "#16a34a"
+        
+            clicked = col.button("View", key=f"view_{day}")
+        
+            if clicked:
+                st.session_state.selected_day = day
+        
+            col.markdown(f"""
+            <div style="
+                border:1px solid #ccc;
+                border-radius:10px;
+                background:{color};
+                color:white;
+                padding:10px;
+                height:120px;
+                display:flex;
+                flex-direction:column;
+                justify-content:space-between;
+            ">
+                <div style="font-size:22px;">{day.day}</div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span>{label}</span>
+                    <span style="font-size:12px; opacity:0.8;">View ↑</span>
+                </div>
+                <div>{round(vol,1)} kg</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     if st.session_state.selected_day:
         st.subheader(f"Sessions on {st.session_state.selected_day}")
@@ -424,7 +441,12 @@ elif page == "Dashboard":
                                 key=f"edit_r_{i}_{j}"
                             )
                         )
-    
+                rpe = st.slider(
+                "RPE",
+                1, 10,
+                int(row["rpe"]),
+                key=f"edit_rpe_{i}"
+            )
                 edited.append({
                     "id": row.get("id"),
                     "date": row["date"],
@@ -433,7 +455,7 @@ elif page == "Dashboard":
                     "sets": sets,
                     "reps_list": new_reps,
                     "avg_reps": sum(new_reps)/len(new_reps),
-                    "rpe": row["rpe"],
+                    "rpe": rpe,
                     "weight": weight,
                     "volume": sum(new_reps)*weight
                 })
