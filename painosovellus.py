@@ -117,6 +117,9 @@ def valid_lifts(df):
 # HELPERS
 # =========================================================
 
+def normalize_date(x):
+    return pd.to_datetime(x, errors="coerce").date()
+
 def session_summary(df):
     if df.empty:
         return df
