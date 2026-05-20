@@ -288,50 +288,64 @@ elif page == "Dashboard":
     summary = session_summary(df)
     meta = day_meta(summary)
 
-    view = st.radio("View",["Week","Month","3 Months","All"],horizontal=True)
+    view = st.radio("View", ["Week", "Month", "3 Months", "All"], horizontal=True)
 
     today = datetime.today().date()
 
-    if view=="Week":
-        start = today - timedelta(days=6)
-        end = today
-    elif view=="Month":
+    # =========================================================
+    # FIXED WEEK LOGIC (MONDAY START, SINGLE WEEK ONLY)
+    # =========================================================
+    if view == "Week":
+        start = today - timedelta(days=today.weekday())  # Monday
+        end = start + timedelta(days=6)
+
+    elif view == "Month":
         start = today.replace(day=1)
         end = (start + pd.offsets.MonthEnd(1)).date()
-    elif view=="3 Months":
-        start = (today.replace(day=1)-pd.DateOffset(months=2)).date()
+
+    elif view == "3 Months":
+        start = (today.replace(day=1) - pd.DateOffset(months=2)).date()
         end = today
+
     else:
         start = df["date"].min().date()
         end = df["date"].max().date()
 
+    # FULL GRID ALIGNMENT (keeps full weeks visible)
     grid_start = start - timedelta(days=start.weekday())
-    grid_end = end + timedelta(days=(6-end.weekday()))
+    grid_end = end + timedelta(days=(6 - end.weekday()))
     grid = pd.date_range(grid_start, grid_end)
 
-    # FULL weekday names + bigger
-    weekday_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+    # Weekday header
+    weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     cols = st.columns(7)
 
     for i, d in enumerate(weekday_names):
         cols[i].markdown(f"<h4 style='text-align:center'>{d}</h4>", unsafe_allow_html=True)
 
-    # =========================
+    # =========================================================
     # CALENDAR GRID
-    # =========================
+    # =========================================================
     for i, d in enumerate(grid):
         col = cols[i % 7]
         day = d.date()
         in_range = start <= day <= end
 
+        # SAFE DEFAULTS (FIX FOR NAMEERROR)
+        color = "#374151"
+        label = "Rest"
+        vol = 0
+
         with col:
             container = st.container()
 
-            # ===== TRAINING DAY =====
+            # =========================
+            # TRAINING DAY
+            # =========================
             if day in meta and in_range:
                 vol = meta[day]["volume"]
-                label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
-                color = "#16a34a" if label=="Lower" else "#2563eb"
+                label = "Lower" if meta[day]["muscle"] == "legs" else "Upper"
+                color = "#16a34a" if label == "Lower" else "#2563eb"
 
                 with container:
                     st.markdown(f"""
@@ -352,11 +366,12 @@ elif page == "Dashboard":
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # BUTTON INSIDE BOX (real fix)
                     if st.button("View", key=f"view_{day}"):
                         st.session_state.selected_day = day
 
-            # ===== REST DAY =====
+            # =========================
+            # REST DAY
+            # =========================
             else:
                 with container:
                     st.markdown(f"""
@@ -366,27 +381,23 @@ elif page == "Dashboard":
                         border-radius:12px;
                         color:white;
                         text-align:center;
-                        height:120px;
+                        height:140px;
                         display:flex;
                         flex-direction:column;
                         justify-content:space-between;
-                        margin-bottom: -8px;
                     ">
                         <div style="font-size:26px;"><b>{day.day}</b></div>
                         <div style="font-size:16px;">{label}</div>
-                        <div style="font-size:14px;">{round(vol,1)} kg</div>
+                        <div style="font-size:14px;">{vol} kg</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
-                    # visually "inside"
-                    st.markdown("<div style='margin-top:-35px'></div>", unsafe_allow_html=True)
-                
+
                     if st.button("View", key=f"view_{day}"):
                         st.session_state.selected_day = day
 
-    # =========================
-    # SHOW SESSION ONLY IF CLICKED
-    # =========================
+    # =========================================================
+    # SESSION DETAIL VIEW
+    # =========================================================
     if st.session_state.selected_day is not None:
 
         st.divider()
@@ -429,7 +440,6 @@ elif page == "Dashboard":
                             )
                         )
 
-                # ✅ RPE FIX (you asked this)
                 rpe = st.slider(
                     "RPE",
                     1, 10,
@@ -447,7 +457,7 @@ elif page == "Dashboard":
                     "avg_reps": sum(new_reps) / max(len(new_reps), 1),
                     "rpe": rpe,
                     "weight": weight,
-                    "volume": sum(new_reps)*weight
+                    "volume": sum(new_reps) * weight
                 })
 
             if st.button("Save edits"):
