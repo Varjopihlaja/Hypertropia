@@ -278,9 +278,9 @@ if page == "Train":
 # =========================================================
 # DASHBOARD
 # =========================================================
-
 elif page == "Dashboard":
     st.title("Calendar")
+
     if "selected_day" not in st.session_state:
         st.session_state.selected_day = None
 
@@ -309,129 +309,109 @@ elif page == "Dashboard":
     grid_end = end + timedelta(days=(6-end.weekday()))
     grid = pd.date_range(grid_start, grid_end)
 
+    # FULL weekday names + bigger
+    weekday_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     cols = st.columns(7)
 
-    for i,d in enumerate(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]):
-        cols[i].markdown(f"**{d}**")
+    for i, d in enumerate(weekday_names):
+        cols[i].markdown(f"<h4 style='text-align:center'>{d}</h4>", unsafe_allow_html=True)
 
-    for i,d in enumerate(grid):
-        col = cols[i%7]
+    # =========================
+    # CALENDAR GRID
+    # =========================
+    for i, d in enumerate(grid):
+        col = cols[i % 7]
         day = d.date()
-
         in_range = start <= day <= end
 
-        if day in meta and in_range:
-            vol = meta[day]["volume"]
-            label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
-            color = "#2563eb" if label=="Upper" else "#16a34a"
+        with col:
+            container = st.container()
 
-            box = f"""
-            <div style="
-            border:1px solid #ccc;
-            border-radius:10px;
-            background:{color};
-            color:white;
-            padding:10px;
-            height:120px;
-            display:flex;
-            flex-direction:column;
-            justify-content:space-between;
-            text-align:center;
-            overflow:hidden;
-        ">
-            <div style="font-size:26px">{day.day}</div>
-            <div>{label}</div>
-            <div>{round(vol,1)} kg</div>
-        </div>
-"""
-        else:
-            box = f"""
-            <div style="
-                border:1px solid #e5e7eb;
-                border-radius:10px;
-                background:#f3f4f6;
-                padding:10px;
-                height:120px;
-                display:flex;
-                flex-direction:column;
-                justify-content:space-between;
-                text-align:center;
-                color:#9ca3af;
-            ">
-                <div style="font-size:26px">{day.day}</div>
-                <div>Rest</div>
-                <div></div>
-            </div>
-            """
+            # ===== TRAINING DAY =====
+            if day in meta and in_range:
+                vol = meta[day]["volume"]
+                label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
+                color = "#16a34a" if label=="Lower" else "#2563eb"
 
-    
+                with container:
+                    st.markdown(f"""
+                    <div style="
+                        background:{color};
+                        padding:10px;
+                        border-radius:12px;
+                        color:white;
+                        text-align:center;
+                        height:140px;
+                        display:flex;
+                        flex-direction:column;
+                        justify-content:space-between;
+                    ">
+                        <div style="font-size:26px;"><b>{day.day}</b></div>
+                        <div style="font-size:16px;">{label}</div>
+                        <div style="font-size:14px;">{round(vol,1)} kg</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-        if day in meta and in_range:
-            vol = meta[day]["volume"]
-            label = "Lower" if meta[day]["muscle"]=="legs" else "Upper"
-            color = "#2563eb" if label=="Upper" else "#16a34a"
-        
-            clicked = col.button("View", key=f"view_{day}")
-        
-            if clicked:
-                st.session_state.selected_day = day
-        
-            col.markdown(f"""
-            <div style="
-                border:1px solid #ccc;
-                border-radius:10px;
-                background:{color};
-                color:white;
-                padding:10px;
-                height:120px;
-                display:flex;
-                flex-direction:column;
-                justify-content:space-between;
-            ">
-                <div style="font-size:22px;">{day.day}</div>
-                <div style="display:flex; justify-content:space-between;">
-                    <span>{label}</span>
-                    <span style="font-size:12px; opacity:0.8;">View ↑</span>
-                </div>
-                <div>{round(vol,1)} kg</div>
-            </div>
-            """, unsafe_allow_html=True)
+                    # BUTTON INSIDE BOX (real fix)
+                    if st.button("View", key=f"view_{day}"):
+                        st.session_state.selected_day = day
 
-    if st.session_state.selected_day:
+            # ===== REST DAY =====
+            else:
+                with container:
+                    st.markdown(f"""
+                    <div style="
+                        background:#f3f4f6;
+                        padding:10px;
+                        border-radius:12px;
+                        text-align:center;
+                        height:140px;
+                        display:flex;
+                        flex-direction:column;
+                        justify-content:space-between;
+                        color:#9ca3af;
+                    ">
+                        <div style="font-size:26px;"><b>{day.day}</b></div>
+                        <div>Rest</div>
+                        <div></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    # =========================
+    # SHOW SESSION ONLY IF CLICKED
+    # =========================
+    if st.session_state.selected_day is not None:
+
+        st.divider()
         st.subheader(f"Sessions on {st.session_state.selected_day}")
-    
+
         sessions = get_sessions_by_date(st.session_state.selected_day)
-    
+
         if sessions.empty:
             st.info("No sessions logged.")
         else:
             edited = []
-    
+
             for i, row in sessions.iterrows():
                 st.markdown(f"### {row['exercise']}")
-    
+
                 weight = st.number_input(
                     "Weight",
                     value=float(row["weight"]),
                     key=f"edit_w_{i}"
                 )
-    
+
                 sets = st.number_input(
                     "Sets",
                     value=int(row["sets"]),
                     key=f"edit_s_{i}"
                 )
-    
+
                 reps_list = row["reps_list"]
                 new_reps = []
-    
-               
-                n_cols = max(1, len(reps_list))
-                cols2 = st.columns(n_cols)
-                if len(reps_list) == 0:
-                    st.warning("Skipped exercise (no sets logged)")
-                    continue
-    
+
+                cols2 = st.columns(max(1, len(reps_list)))
+
                 for j, r in enumerate(reps_list):
                     with cols2[j]:
                         new_reps.append(
@@ -441,12 +421,15 @@ elif page == "Dashboard":
                                 key=f"edit_r_{i}_{j}"
                             )
                         )
+
+                # ✅ RPE FIX (you asked this)
                 rpe = st.slider(
-                "RPE",
-                1, 10,
-                int(row["rpe"]),
-                key=f"edit_rpe_{i}"
-            )
+                    "RPE",
+                    1, 10,
+                    int(row["rpe"]),
+                    key=f"edit_rpe_{i}"
+                )
+
                 edited.append({
                     "id": row.get("id"),
                     "date": row["date"],
@@ -459,17 +442,17 @@ elif page == "Dashboard":
                     "weight": weight,
                     "volume": sum(new_reps)*weight
                 })
-    
+
             if st.button("Save edits"):
                 for r in edited:
                     supabase.table("workouts") \
                         .update(r) \
                         .eq("id", r["id"]) \
                         .execute()
-    
+
                 st.success("Updated!")
                 st.rerun()
-    
+
     st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
