@@ -278,6 +278,7 @@ if page == "Train":
 # =========================================================
 # DASHBOARD
 # =========================================================
+
 elif page == "Dashboard":
     st.title("Calendar")
 
@@ -293,7 +294,7 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =========================================================
-    # FIXED WEEK LOGIC (MONDAY START, SINGLE WEEK ONLY)
+    # FIXED TIME WINDOWS
     # =========================================================
     if view == "Week":
         start = today - timedelta(days=today.weekday())  # Monday
@@ -311,12 +312,22 @@ elif page == "Dashboard":
         start = df["date"].min().date()
         end = df["date"].max().date()
 
-    # FULL GRID ALIGNMENT (keeps full weeks visible)
+    # =========================================================
+    # GRID ALIGNMENT (FULL WEEK GRID)
+    # =========================================================
     grid_start = start - timedelta(days=start.weekday())
     grid_end = end + timedelta(days=(6 - end.weekday()))
     grid = pd.date_range(grid_start, grid_end)
 
-    # Weekday header
+    # =========================================================
+    # COLORS
+    # =========================================================
+    rest_color = "#e5e7eb"
+    out_color = "#ffffff"
+    border = "#d1d5db"
+    text_rest = "#6b7280"
+    text_out = "#9ca3af"
+
     weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     cols = st.columns(7)
 
@@ -329,71 +340,61 @@ elif page == "Dashboard":
     for i, d in enumerate(grid):
         col = cols[i % 7]
         day = d.date()
-        in_range = start <= day <= end
 
-        # SAFE DEFAULTS (FIX FOR NAMEERROR)
-        color = "#374151"
-        label = "Rest"
-        vol = 0
+        in_range = start <= day <= end
+        is_training = day in meta
+
+        # -------------------------
+        # DEFAULT (overflow days)
+        # -------------------------
+        color = out_color
+        label = ""
+        vol = ""
+        text_color = text_out
+
+        # -------------------------
+        # REST DAY (inside range)
+        # -------------------------
+        if in_range and not is_training:
+            color = rest_color
+            label = "Rest"
+            vol = 0
+            text_color = text_rest
+
+        # -------------------------
+        # TRAINING DAY
+        # -------------------------
+        if is_training and in_range:
+            vol = meta[day]["volume"]
+            label = "Lower" if meta[day]["muscle"] == "legs" else "Upper"
+            color = "#16a34a" if label == "Lower" else "#2563eb"
+            text_color = "white"
 
         with col:
             container = st.container()
 
-            # =========================
-            # TRAINING DAY
-            # =========================
-            if day in meta and in_range:
-                vol = meta[day]["volume"]
-                label = "Lower" if meta[day]["muscle"] == "legs" else "Upper"
-                color = "#16a34a" if label == "Lower" else "#2563eb"
+            with container:
+                st.markdown(f"""
+                <div style="
+                    background:{color};
+                    border: 1px solid {border};
+                    padding:10px;
+                    border-radius:12px;
+                    color:{text_color};
+                    text-align:center;
+                    height:140px;
+                    display:flex;
+                    flex-direction:column;
+                    justify-content:space-between;
+                ">
+                    <div style="font-size:26px;"><b>{day.day}</b></div>
+                    <div style="font-size:14px;">{label}</div>
+                    <div style="font-size:12px;">{vol}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-                with container:
-                    st.markdown(f"""
-                    <div style="
-                        background:{color};
-                        padding:10px;
-                        border-radius:12px;
-                        color:white;
-                        text-align:center;
-                        height:140px;
-                        display:flex;
-                        flex-direction:column;
-                        justify-content:space-between;
-                    ">
-                        <div style="font-size:26px;"><b>{day.day}</b></div>
-                        <div style="font-size:16px;">{label}</div>
-                        <div style="font-size:14px;">{round(vol,1)} kg</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    if st.button("View", key=f"view_{day}"):
-                        st.session_state.selected_day = day
-
-            # =========================
-            # REST DAY
-            # =========================
-            else:
-                with container:
-                    st.markdown(f"""
-                    <div style="
-                        background:{color};
-                        padding:10px;
-                        border-radius:12px;
-                        color:white;
-                        text-align:center;
-                        height:140px;
-                        display:flex;
-                        flex-direction:column;
-                        justify-content:space-between;
-                    ">
-                        <div style="font-size:26px;"><b>{day.day}</b></div>
-                        <div style="font-size:16px;">{label}</div>
-                        <div style="font-size:14px;">{vol} kg</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    if st.button("View", key=f"view_{day}"):
-                        st.session_state.selected_day = day
+                if in_range and st.button("View", key=f"view_{day}"):
+                    st.session_state.selected_day = day
 
     # =========================================================
     # SESSION DETAIL VIEW
@@ -460,32 +461,27 @@ elif page == "Dashboard":
                     "volume": sum(new_reps) * weight
                 })
 
-
             if st.button("Save edits"):
                 for r in edited:
-            
-                    clean_payload = {
-                        "date": str(r["date"]),  # FIX: force string
-                        "exercise": r["exercise"],
-                        "muscle": r["muscle"],
-                        "sets": int(r["sets"]),
-                        "reps_list": [int(x) for x in r["reps_list"]],  # FIX numpy safety
-                        "avg_reps": float(r["avg_reps"]),
-                        "rpe": int(r["rpe"]),
-                        "weight": float(r["weight"]),
-                        "volume": float(r["volume"])
-                    }
-            
                     supabase.table("workouts") \
-                        .update(clean_payload) \
+                        .update({
+                            "date": str(r["date"]),
+                            "exercise": r["exercise"],
+                            "muscle": r["muscle"],
+                            "sets": int(r["sets"]),
+                            "reps_list": [int(x) for x in r["reps_list"]],
+                            "avg_reps": float(r["avg_reps"]),
+                            "rpe": int(r["rpe"]),
+                            "weight": float(r["weight"]),
+                            "volume": float(r["volume"])
+                        }) \
                         .eq("id", r["id"]) \
                         .execute()
-            
+
                 st.success("Updated!")
                 st.rerun()
 
     st.line_chart(summary.set_index("date")["volume"])
-
 # =========================================================
 # 1RM TRACKING
 # =========================================================
