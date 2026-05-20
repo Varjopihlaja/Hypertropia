@@ -89,6 +89,10 @@ df = safe_df()
 def valid_lifts(df):
     if df.empty:
         return df
+
+    if "skipped" in df.columns:
+        df = df[df["skipped"] != True]
+
     return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
 
 # =========================================================
@@ -100,7 +104,7 @@ def session_summary(df):
         return df
 
     df = valid_lifts(df.copy())
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
 
     return df.groupby("date").agg({
         "volume": "sum",
@@ -118,7 +122,7 @@ def day_meta(summary_df):
 
 def get_sessions_by_date(date):
     d = df.copy()
-    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    d["date"] = pd.to_datetime(d["date"], errors="coerce", dayfirst=True)
     return d[d["date"].dt.date == date]
 
 # =========================================================
@@ -181,7 +185,7 @@ def progression(ex, reps, rpe, weight):
 
 # ✅ ADD THIS BACK
 def recommended_weight(ex):
-    d = valid_lifts(df[df["exercise"] == ex])
+    d = valid_lifts(df[df["exercise"] == ex].copy())
     if d.empty:
         return 20
 
@@ -245,7 +249,7 @@ if page == "Train":
             vol = sum(reps) * weight if sets > 0 else 0
 
             session.append({
-                "date": date.strftime("%Y-%m-%d"),
+                "date": date.strftime("%d/%m/%Y"),
                 "exercise": ex,
                 "muscle": MUSCLE[ex],
                 "sets": sets,
@@ -271,7 +275,7 @@ elif page == "Dashboard":
     if "selected_day" not in st.session_state:
         st.session_state.selected_day = None
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True).dt.date
     summary = session_summary(df.copy())
     summary["date"] = pd.to_datetime(summary["date"], errors="coerce").dt.date
     meta = day_meta(summary)
@@ -564,7 +568,7 @@ elif page == "Muscle Load":
 
     st.title("Muscle Load")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
@@ -738,7 +742,7 @@ elif page == "Muscle Load":
 elif page == "Fatigue Planner":
     st.title("Fatigue Monitor")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
 
     st.markdown("""
     **Acute load** = last 7 days training stress (what you did recently)  
@@ -852,7 +856,7 @@ elif page == "Progression":
 
     import altair as alt
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
 
     # =========================
     # UI CONTROLS
@@ -867,7 +871,7 @@ elif page == "Progression":
         return d.strftime("%d.%m.%Y")
 
     def build_series(ex):
-        d = valid_lifts(df[df["exercise"] == ex])
+        d = valid_lifts(df[df["exercise"] == ex].copy())
         if d.empty:
             return None
         d = d[(d["sets"] > 0) & (d["volume"] > 0)]    
