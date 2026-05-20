@@ -189,8 +189,9 @@ def snap(w, step):
 
 def is_assisted(ex):
     return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
-
 def progression(ex, reps, rpe, weight):
+    if len(reps) == 0 or sum(reps) == 0:
+        return weight, "skipped session"
     avg = sum(reps)/max(len(reps),1)
     step = get_step(ex)
     assisted = is_assisted(ex)
@@ -211,7 +212,7 @@ def progression(ex, reps, rpe, weight):
     return weight, "maintain"
 
 def recommended_weight(ex):
-    d = df[df["exercise"] == ex].copy()
+    d = df[(df["exercise"] == ex) & (df["sets"] > 0)].copy()
     if d.empty:
         return 20
 
@@ -256,7 +257,11 @@ if page == "Train":
 
             st.markdown(f"### {ex}")
 
-            last = next((x for x in reversed(data) if x["exercise"]==ex), None)
+            last = next(
+                (x for x in reversed(data)
+                 if x["exercise"] == ex and x.get("sets", 0) > 0),
+               None
+            )
             rec_w = recommended_weight(ex)
 
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
@@ -294,7 +299,9 @@ if page == "Train":
                 "avg_reps":sum(reps)/max(len(reps),1),
                 "rpe":rpe,
                 "weight":weight,
-                "volume":sum(reps)*weight
+                vol = sum(reps) * weight if sets > 0 else 0,
+                "volume": vol,
+                "skipped": sets == 0
             })
 
     if st.button("Save"):
@@ -390,9 +397,21 @@ elif page == "Dashboard":
             </div>
             """
 
-        if col.button(str(day), key=str(day)):     
-            st.session_state.selected_day = day  
-        col.markdown(box, unsafe_allow_html=True)
+    
+
+        inner = col.container()
+
+        top = inner.columns([3, 1])
+
+        with top[0]:
+            st.markdown(f"**{day.day}**")
+
+        with top[1]:
+            if in_range:
+                if st.button("View", key=f"view_{day}"):
+                    st.session_state.selected_day = day
+
+        inner.markdown(box, unsafe_allow_html=True)
 
     if st.session_state.selected_day:
         st.subheader(f"Sessions on {st.session_state.selected_day}")
@@ -422,7 +441,12 @@ elif page == "Dashboard":
                 reps_list = row["reps_list"]
                 new_reps = []
     
-                cols2 = st.columns(len(reps_list))
+               
+                n_cols = max(1, len(reps_list))
+                cols2 = st.columns(n_cols)
+                if len(reps_list) == 0:
+                    st.warning("Skipped exercise (no sets logged)")
+                    continue
     
                 for j, r in enumerate(reps_list):
                     with cols2[j]:
@@ -796,7 +820,7 @@ elif page == "Progression":
         return d.strftime("%d.%m.%Y")
 
     def build_series(ex):
-        d = df[df["exercise"] == ex].copy()
+        d = df[(df["exercise"] == ex) & (df["sets"] > 0)].copy()
         if d.empty:
             return None
 
