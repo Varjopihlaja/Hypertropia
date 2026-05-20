@@ -599,111 +599,153 @@ elif page == "Muscle Load":
 elif page == "Fatigue Planner":
     st.title("Fatigue Monitor")
 
+    import altair as alt
+
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    st.markdown("""
-    **Acute load** = last 7 days training stress (what you did recently)  
-    **Chronic load** = last 28 days training baseline (your normal capacity)  
-    → Fatigue = how much recent work deviates from your baseline
-    """)
+    # =========================================================
+    # SAME WEIGHT MODEL AS MUSCLE LOAD
+    # =========================================================
+    EX_WEIGHTS = {
 
-    view = st.selectbox("Time window", ["1 Week", "1 Month", "All Time"])
+        "RDL": {"glutes": 0.5, "hamstrings": 0.35, "back": 0.15},
+        "Back Squat": {"quads": 0.45, "glutes": 0.45, "core": 0.10},
+        "Bulgarian Split Squat": {"glutes": 0.6, "quads": 0.3, "core": 0.1},
 
-    # =========================
-    # FILTER WINDOW
-    # =========================
-    if view == "1 Week":
-        cutoff = pd.Timestamp.today() - pd.Timedelta(days=7)
-    elif view == "1 Month":
-        cutoff = pd.Timestamp.today() - pd.Timedelta(days=30)
-    else:
-        cutoff = df["date"].min()
+        "Leg Extension": {"quads": 1.0},
+        "Hip Abduction": {"glutes": 1.0},
 
-    d = df[df["date"] >= cutoff].copy()
+        "Assisted Pull-Up": {"back": 0.6, "biceps": 0.25, "shoulders": 0.15},
+        "Chest Supported Machine Row": {"back": 0.65, "biceps": 0.25, "shoulders": 0.10},
+
+        "Assisted Dip": {"chest": 0.5, "triceps": 0.3, "shoulders": 0.2},
+        "Dumbbell Incline Press": {"chest": 0.55, "shoulders": 0.3, "triceps": 0.15},
+        "Dumbbell Shoulder Press": {"shoulders": 0.7, "triceps": 0.2, "chest": 0.1},
+
+        "Seated Bicep Curl": {"biceps": 1.0},
+        "Machine Abs": {"core": 1.0}
+    }
+
+    # =========================================================
+    # BUILD DAILY MUSCLE STIMULUS (VOLUME-BASED)
+    # =========================================================
+    def build_daily(df):
+        rows = []
+
+        for _, r in df.iterrows():
+            ex = r["exercise"]
+            sets = r["sets"]
+            reps = r.get("avg_reps", 0)
+            weight = r.get("weight", 0)
+
+            stimulus = sets * reps * weight
+
+            # squat special case
+            if ex == "Back Squat" and sets == 3:
+                rows.append({"date": r["date"], "muscle": "glutes", "stimulus": stimulus * (1/3)})
+                rows.append({"date": r["date"], "muscle": "quads", "stimulus": stimulus * (2/3)})
+                rows.append({"date": r["date"], "muscle": "core", "stimulus": stimulus * 0.1})
+                continue
+
+            weights = EX_WEIGHTS.get(ex, {r["muscle"]: 1.0})
+
+            for m, w in weights.items():
+                rows.append({
+                    "date": r["date"],
+                    "muscle": m,
+                    "stimulus": stimulus * w
+                })
+
+        if not rows:
+            return pd.DataFrame(columns=["date","muscle","stimulus"])
+
+        out = pd.DataFrame(rows)
+
+        return (
+            out.groupby(["date","muscle"], as_index=False)["stimulus"].sum()
+        )
+
+    d = build_daily(df)
 
     if d.empty:
-        st.warning("No data in this period.")
+        st.warning("No data.")
         st.stop()
 
-    # =========================
-    # DAILY LOAD
-    # =========================
-    daily = d.groupby(["date", "muscle"])["volume"].sum().reset_index()
-    daily = daily.sort_values("date")
+    # =========================================================
+    # FILL MISSING DAYS (CRITICAL FIX)
+    # =========================================================
+    all_days = pd.date_range(d["date"].min(), d["date"].max())
 
-    def rolling_mean(x, w):
-        return x.rolling(w, min_periods=1).mean()
+    muscles = d["muscle"].unique()
 
-    daily["acute"] = daily.groupby("muscle")["volume"].transform(lambda x: rolling_mean(x, 7))
-    daily["chronic"] = daily.groupby("muscle")["volume"].transform(lambda x: rolling_mean(x, 28))
+    full = pd.MultiIndex.from_product(
+        [all_days, muscles],
+        names=["date","muscle"]
+    ).to_frame(index=False)
 
-    daily["fatigue_index"] = daily["acute"] / daily["chronic"].replace(0, np.nan)
-    daily["fatigue_index"] = daily["fatigue_index"].fillna(1.0)
+    d = full.merge(d, on=["date","muscle"], how="left").fillna(0)
 
-    # =========================
-    # ZONES
-    # =========================
-    def zone(x):
-        if x < 0.8:
-            return "under"
-        elif x <= 1.3:
-            return "optimal"
-        elif x <= 1.6:
-            return "high"
-        return "overload"
+    # =========================================================
+    # ROLLING LOADS
+    # =========================================================
+    d = d.sort_values("date")
 
-    daily["zone"] = daily["fatigue_index"].apply(zone)
+    d["acute"] = d.groupby("muscle")["stimulus"].transform(
+        lambda x: x.rolling(7, min_periods=1).mean()
+    )
 
-    latest = daily.iloc[-1]
+    d["chronic"] = d.groupby("muscle")["stimulus"].transform(
+        lambda x: x.rolling(28, min_periods=1).mean()
+    )
+
+    d["fatigue_index"] = d["acute"] / d["chronic"].replace(0, np.nan)
+    d["fatigue_index"] = d["fatigue_index"].fillna(0)
+
+    # =========================================================
+    # MUSCLE SELECTOR (NEW)
+    # =========================================================
+    muscle_list = sorted(d["muscle"].unique())
+    selected = st.selectbox("Select muscle group", muscle_list)
+
+    dm = d[d["muscle"] == selected].copy()
+
+    # =========================================================
+    # METRICS
+    # =========================================================
+    latest = dm.iloc[-1]
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Acute Load", round(latest["acute"], 1))
     col2.metric("Chronic Load", round(latest["chronic"], 1))
     col3.metric("Fatigue Index", round(latest["fatigue_index"], 2))
 
+    # =========================================================
+    # CLEAN SINGLE CHART
+    # =========================================================
+    base = alt.Chart(dm).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
+    )
+
+    fatigue_line = base.mark_line(point=True).encode(
+        y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
+        tooltip=["date","fatigue_index","acute","chronic"]
+    )
+
+    zones = pd.DataFrame({"y":[0.8,1.3,1.6]})
+
+    zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6,6]).encode(y="y:Q")
+
+    st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
+
+    # =========================================================
+    # INTERPRETATION
+    # =========================================================
     if latest["fatigue_index"] > 1.6:
         st.error("High fatigue — deload recommended")
     elif latest["fatigue_index"] > 1.3:
         st.warning("Elevated fatigue — monitor recovery")
     elif latest["fatigue_index"] < 0.8:
         st.info("Low training stimulus")
-
-    # =========================
-    # VISUALIZATION (BETTER)
-    # =========================
-    import altair as alt
-
-    base = alt.Chart(daily).encode(
-        x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
-    )
-
-    # Fatigue line per muscle
-    fatigue_line = base.mark_line(point=True).encode(
-        y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
-        color=alt.Color("muscle:N", title="Muscle"),
-        tooltip=["date", "muscle", "fatigue_index", "acute", "chronic"]
-    )
-
-    # Reference zone lines
-    zones = pd.DataFrame({
-        "y": [0.8, 1.3, 1.6],
-        "label": ["Under", "Optimal", "High"]
-    })
-
-    zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6, 6]).encode(
-        y="y:Q"
-    )
-
-    st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
-
-    st.markdown("""
-    ### Interpretation
-    - **Acute load** → recent stress (fatigue today)  
-    - **Chronic load** → long-term capacity (fitness baseline)  
-    - **Fatigue index > 1.3** → accumulating fatigue  
-    - **< 0.8** → undertraining / underload  
-    """)
-
 #################################################
 # PROGRESSION
 #################################################
