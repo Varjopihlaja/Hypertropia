@@ -404,19 +404,33 @@ elif page == "Muscle Load":
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
-    EX_MAP = {
-        "Back Squat": ["quads","glutes","core"],
-        "RDL": ["hamstrings","glutes","back"],
-        "Bulgarian Split Squat": ["quads","glutes"],
-        "Leg Extension": ["quads"],
-        "Hip Abduction": ["glutes"],
-        "Assisted Pull-Up": ["back","biceps"],
-        "Assisted Dip": ["chest","triceps","shoulders"],
-        "Chest Supported Machine Row": ["back","biceps"],
-        "Dumbbell Shoulder Press": ["shoulders","triceps"],
-        "Seated Bicep Curl": ["biceps"],
-        "Dumbbell Incline Press": ["chest","shoulders","triceps"],
-        "Machine Abs": ["core"]
+    # =========================================================
+    # UPDATED EXERCISE → MUSCLE WEIGHTS (WITH SECONDARIES)
+    # =========================================================
+    EX_WEIGHTS = {
+
+        # LOWER
+        "RDL": {"glutes": 0.5, "hamstrings": 0.35, "back": 0.15},
+
+        "Back Squat": {"quads": 0.45, "glutes": 0.45, "core": 0.10},
+
+        "Bulgarian Split Squat": {"glutes": 0.6, "quads": 0.3, "core": 0.1},
+
+        "Leg Extension": {"quads": 1.0},
+        "Hip Abduction": {"glutes": 1.0},
+
+        # UPPER PULL
+        "Assisted Pull-Up": {"back": 0.6, "biceps": 0.25, "shoulders": 0.15},
+        "Chest Supported Machine Row": {"back": 0.65, "biceps": 0.25, "shoulders": 0.10},
+
+        # UPPER PUSH
+        "Assisted Dip": {"chest": 0.5, "triceps": 0.3, "shoulders": 0.2},
+        "Dumbbell Incline Press": {"chest": 0.55, "shoulders": 0.3, "triceps": 0.15},
+        "Dumbbell Shoulder Press": {"shoulders": 0.7, "triceps": 0.2, "chest": 0.1},
+
+        # ISOLATION
+        "Seated Bicep Curl": {"biceps": 1.0},
+        "Machine Abs": {"core": 1.0}
     }
 
     ranges = {
@@ -437,19 +451,30 @@ elif page == "Muscle Load":
     )
 
     # =========================================================
-    # SAFE BUILD FUNCTION (FIXED KEYERROR)
+    # BUILD FUNCTION (FIXED)
     # =========================================================
     def build_df(in_df):
         rows = []
 
         for _, r in in_df.iterrows():
-            muscles = EX_MAP.get(r["exercise"], [r["muscle"]])
-            split = r["sets"] / len(muscles)
+            ex = r["exercise"]
+            sets = r["sets"]
 
-            for m in muscles:
-                rows.append({"muscle": m, "sets": split})
+            # SPECIAL CASE: squat stance split + core retained
+            if ex == "Back Squat" and sets == 3:
+                rows.append({"muscle": "glutes", "sets": 1})
+                rows.append({"muscle": "quads", "sets": 2})
+                rows.append({"muscle": "core", "sets": 0.3})
+                continue
 
-        # IMPORTANT FIX: avoid empty DataFrame crash
+            weights = EX_WEIGHTS.get(ex, {r["muscle"]: 1.0})
+
+            for m, w in weights.items():
+                rows.append({
+                    "muscle": m,
+                    "sets": sets * w
+                })
+
         if not rows:
             return pd.DataFrame(columns=["muscle", "sets"])
 
@@ -501,7 +526,7 @@ elif page == "Muscle Load":
         return (bars + range_bar).properties(height=180)
 
     # =========================================================
-    # WEEK VIEW (UNCHANGED)
+    # WEEK VIEW
     # =========================================================
     if view == "Week":
 
@@ -514,6 +539,7 @@ elif page == "Muscle Load":
         selected_week = st.selectbox(
             "Select week",
             weeks,
+            index=len(weeks)-1,  # ✅ default to most recent
             format_func=lambda x: x.strftime("%d.%m.%Y")
         )
 
@@ -526,24 +552,24 @@ elif page == "Muscle Load":
             st.altair_chart(chart, use_container_width=True)
 
     # =========================================================
-    # MONTH VIEW (STACKED FULL WEEK ROWS — FIXED)
+    # MONTH VIEW (NEWEST WEEK FIRST)
     # =========================================================
     else:
 
         months = sorted(df["date"].dt.to_period("M").astype(str).unique())
-        selected_month = st.selectbox("Select month", months)
+        selected_month = st.selectbox("Select month", months, index=len(months)-1)
 
         start = pd.to_datetime(selected_month + "-01")
         end = start + pd.offsets.MonthEnd(1)
 
-        # Align to full Mon–Sun weeks
         grid_start = start - pd.Timedelta(days=start.weekday())
         grid_end = end + pd.Timedelta(days=(6 - end.weekday()))
 
         all_days = pd.date_range(grid_start, grid_end)
 
-        # split into full week rows (7 days each)
+        # split weeks and REVERSE
         weeks = [all_days[i:i+7] for i in range(0, len(all_days), 7)]
+        weeks = weeks[::-1]  # ✅ newest first
 
         st.subheader(start.strftime("%B %Y"))
 
@@ -552,7 +578,6 @@ elif page == "Muscle Load":
             week_start = w[0]
             week_end = w[-1]
 
-            # readable label like 27.4 – 3.5
             label = f"{week_start.day}.{week_start.month} – {week_end.day}.{week_end.month}"
             st.markdown(f"### {label}")
 
