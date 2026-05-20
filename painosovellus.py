@@ -123,7 +123,7 @@ def weekly_exercise_volume(df):
 def day_meta(summary_df):
     meta = {}
     for _, r in summary_df.iterrows():
-        meta[r["date"].date()] = {
+        meta[r["date"]] = {
             "volume": float(r["volume"]),
             "muscle": r["muscle"]
         }
