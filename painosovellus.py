@@ -308,7 +308,7 @@ if page == "Train":
 elif page == "Dashboard":
     st.title("Calendar")
     if "selected_day" not in st.session_state:
-    st.session_state.selected_day = None
+        st.session_state.selected_day = None
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     summary = session_summary(df)
