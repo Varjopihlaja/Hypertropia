@@ -20,12 +20,10 @@ st.set_page_config(layout="wide")
 # COACH MODE SETTINGS
 # =========================================================
 
-COACH_MODE = "hypertrophy"  # change to "strength" if needed
+COACH_MODE = "hypertrophy"
 
 def get_target_reps():
-    if COACH_MODE == "strength":
-        return (4, 8)
-    return (8, 12)
+    return (4, 8) if COACH_MODE == "strength" else (8, 12)
 
 def get_progression_step(ex):
     return 1.25 if "machine row" in ex.lower() else 2.5
@@ -76,13 +74,21 @@ data = load_data()
 def safe_df():
     if not data:
         return pd.DataFrame(columns=[
-            "date","exercise","muscle",
-            "sets","reps_list","avg_reps",
-            "rpe","weight","volume"
+            "date","exercise","muscle","sets",
+            "reps_list","avg_reps","rpe","weight","volume"
         ])
     return pd.DataFrame(data)
 
 df = safe_df()
+
+# =========================================================
+# CORE FILTER
+# =========================================================
+
+def valid_lifts(df):
+    if df.empty:
+        return df
+    return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
 
 # =========================================================
 # HELPERS
@@ -92,25 +98,27 @@ def session_summary(df):
     if df.empty:
         return df
 
-    df = df.copy()
+    df = valid_lifts(df.copy())
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    return valid_lifts(df)"date").agg({
+    return df.groupby("date").agg({
         "volume": "sum",
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
 
 def weekly_fatigue(df):
-    df = df.copy()
+    df = valid_lifts(df.copy())
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return valid_lifts(df)["week", "muscle"])["volume"].sum().reset_index()
+
+    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
 
 def weekly_exercise_volume(df):
-    df = df.copy()
+    df = valid_lifts(df.copy())
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return valid_lifts(df)["exercise", "week"])["volume"].sum().reset_index()
+
+    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
 
 def day_meta(summary_df):
     meta = {}
@@ -126,36 +134,6 @@ def get_sessions_by_date(date):
     d["date"] = pd.to_datetime(d["date"], errors="coerce")
     return d[d["date"].dt.date == date]
 
-def valid_lifts(df):
-    return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
-# =========================================================
-# FORECAST
-# =========================================================
-
-def forecast(series_df, x_col, y_col):
-    df2 = series_df.copy().dropna()
-    if len(df2) < 2:
-        return df2, None
-
-    df2 = df2.sort_values(x_col)
-
-    x = np.arange(len(df2))
-    y = df2[y_col].values
-
-    slope = np.polyfit(x, y, 1)[0]
-
-    future_x = np.arange(len(df2), len(df2) + 7)
-    future_y = y[-1] + slope * (future_x - len(df2) + 1)
-
-    future_dates = pd.date_range(df2[x_col].iloc[-1], periods=8, freq="D")[1:]
-
-    future = pd.DataFrame({
-        x_col: future_dates,
-        y_col: future_y
-    })
-
-    return df2, future
-
 # =========================================================
 # EXERCISES
 # =========================================================
@@ -163,13 +141,9 @@ def forecast(series_df, x_col, y_col):
 LOWER = ["RDL","Back Squat","Bulgarian Split Squat","Leg Extension","Hip Abduction"]
 
 UPPER = [
-    "Assisted Pull-Up",
-    "Assisted Dip",
-    "Chest Supported Machine Row",
-    "Dumbbell Shoulder Press",
-    "Seated Bicep Curl",
-    "Dumbbell Incline Press",
-    "Machine Abs"
+    "Assisted Pull-Up","Assisted Dip","Chest Supported Machine Row",
+    "Dumbbell Shoulder Press","Seated Bicep Curl",
+    "Dumbbell Incline Press","Machine Abs"
 ]
 
 MUSCLE = {
@@ -192,14 +166,15 @@ def snap(w, step):
 
 def is_assisted(ex):
     return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
+
 def progression(ex, reps, rpe, weight):
     if len(reps) == 0 or sum(reps) == 0:
         return weight, "skipped session"
-    avg = sum(reps)/max(len(reps),1)
-    step = get_step(ex)
-    assisted = is_assisted(ex)
 
-    if assisted:
+    avg = sum(reps)/len(reps)
+    step = get_step(ex)
+
+    if is_assisted(ex):
         if rpe >= 9:
             return snap(weight + step, step), "increase assistance"
         if avg >= 12 and rpe <= 8:
@@ -212,6 +187,7 @@ def progression(ex, reps, rpe, weight):
         return snap(weight + step, step), "progress"
     if avg < 8:
         return weight, "build reps"
+
     return weight, "maintain"
 
 def recommended_weight(ex):
@@ -220,16 +196,9 @@ def recommended_weight(ex):
         return 20
 
     d = d.sort_values("date").tail(6)
-
-    # stable 1RM estimate
     d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
 
-    base = d["e1rm"].mean()
-
-    step = get_progression_step(ex)
-
-    # small conservative scaling (prevents drift like 29.1kg)
-    return snap(base * 0.90, step)
+    return snap(d["e1rm"].mean() * 0.90, get_progression_step(ex))
 
 # =========================================================
 # UI
@@ -247,12 +216,12 @@ page = st.sidebar.radio(
 # =========================================================
 
 if page == "Train":
+
     date = st.date_input("Date", datetime.today())
     split = st.radio("Split", ["Lower","Upper"], horizontal=True)
 
     exercises = LOWER if split=="Lower" else UPPER
     session = []
-    volume = 0 if sets == 0 else sum(reps) * weight
 
     cols = st.columns(5)
 
@@ -261,30 +230,19 @@ if page == "Train":
 
             st.markdown(f"### {ex}")
 
-            last = next(
-                (x for x in reversed(data)
-                 if x["exercise"] == ex and x.get("sets", 0) > 0),
-               None
-            )
+            last = next((x for x in reversed(data)
+                         if x["exercise"] == ex and x.get("sets",0)>0), None)
+
             rec_w = recommended_weight(ex)
 
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
 
             reps = []
-            last_reps = last["reps_list"] if last else [10]*sets
-
             rep_cols = st.columns(max(1, sets))
 
             for i2 in range(sets):
                 with rep_cols[i2]:
-                    reps.append(
-                        st.number_input(
-                            f"{i2+1}",
-                            0,30,
-                            int(last_reps[i2]) if i2<len(last_reps) else 10,
-                            key=f"{ex}r{i2}"
-                        )
-                    )
+                    reps.append(st.number_input(f"{i2+1}",0,30,10,key=f"{ex}r{i2}"))
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
@@ -302,7 +260,7 @@ if page == "Train":
                 "muscle": MUSCLE[ex],
                 "sets": sets,
                 "reps_list": reps,
-                "avg_reps": sum(reps) / max(len(reps), 1),
+                "avg_reps": sum(reps)/max(len(reps),1),
                 "rpe": rpe,
                 "weight": weight,
                 "volume": vol,
@@ -312,6 +270,10 @@ if page == "Train":
     if st.button("Save"):
         save_data(session)
         st.success("Saved")
+
+# =========================================================
+# (ALL OTHER PAGES REMAIN IDENTICAL)
+# =========================================================
 
 # =========================================================
 # DASHBOARD
