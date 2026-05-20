@@ -292,7 +292,7 @@ if page == "Train":
                 "rpe": rpe,
                 "weight": weight,
                 "volume": vol,
-                "skipped": sets == 0
+                "performed": sets > 0
             })
 
     if st.button("Save"):
