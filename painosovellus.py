@@ -95,7 +95,7 @@ def session_summary(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    return df.groupby("date").agg({
+    return valid_lifts(df)"date").agg({
         "volume": "sum",
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
@@ -104,13 +104,13 @@ def weekly_fatigue(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
+    return valid_lifts(df)["week", "muscle"])["volume"].sum().reset_index()
 
 def weekly_exercise_volume(df):
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
+    return valid_lifts(df)["exercise", "week"])["volume"].sum().reset_index()
 
 def day_meta(summary_df):
     meta = {}
@@ -125,6 +125,9 @@ def get_sessions_by_date(date):
     d = df.copy()
     d["date"] = pd.to_datetime(d["date"], errors="coerce")
     return d[d["date"].dt.date == date]
+
+def valid_lifts(df):
+    return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
 # =========================================================
 # FORECAST
 # =========================================================
@@ -212,7 +215,7 @@ def progression(ex, reps, rpe, weight):
     return weight, "maintain"
 
 def recommended_weight(ex):
-    d = df[(df["exercise"] == ex) & (df["sets"] > 0)].copy()
+    d = valid_lifts(df[df["exercise"] == ex])
     if d.empty:
         return 20
 
@@ -249,6 +252,7 @@ if page == "Train":
 
     exercises = LOWER if split=="Lower" else UPPER
     session = []
+    volume = 0 if sets == 0 else sum(reps) * weight
 
     cols = st.columns(5)
 
@@ -290,16 +294,17 @@ if page == "Train":
             st.caption(msg)
             st.success(f"Next: {new_w}")
 
+            vol = sum(reps) * weight if sets > 0 else 0
+
             session.append({
-                "date":date.strftime("%Y-%m-%d"),
-                "exercise":ex,
-                "muscle":MUSCLE[ex],
-                "sets":sets,
-                "reps_list":reps,
-                "avg_reps":sum(reps)/max(len(reps),1),
-                "rpe":rpe,
-                "weight":weight,
-                vol = sum(reps) * weight if sets > 0 else 0,
+                "date": date.strftime("%Y-%m-%d"),
+                "exercise": ex,
+                "muscle": MUSCLE[ex],
+                "sets": sets,
+                "reps_list": reps,
+                "avg_reps": sum(reps) / max(len(reps), 1),
+                "rpe": rpe,
+                "weight": weight,
                 "volume": vol,
                 "skipped": sets == 0
             })
@@ -820,9 +825,10 @@ elif page == "Progression":
         return d.strftime("%d.%m.%Y")
 
     def build_series(ex):
-        d = df[(df["exercise"] == ex) & (df["sets"] > 0)].copy()
+        d = valid_lifts(df[df["exercise"] == ex])
         if d.empty:
             return None
+        d = d[(d["sets"] > 0) & (d["volume"] > 0)]    
 
         d = d.sort_values("date")
 
@@ -835,6 +841,7 @@ elif page == "Progression":
             return None
 
         # core signals (keep consistent with your system)
+        d = d[d["sets"] > 0]
         d["signal"] = d["weight"] * d["avg_reps"]
         d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
         d["fatigue"] = d["signal"] / (1 + d["rpe"] / 10)
