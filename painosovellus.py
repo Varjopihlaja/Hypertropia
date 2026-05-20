@@ -318,8 +318,16 @@ elif page == "Dashboard":
         end = today
 
     else:
-        start = min(df["date"])
-        end = max(df["date"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
+
+        valid_dates = df["date"].dropna()
+        
+        if valid_dates.empty:
+            st.info("No training data yet.")
+            st.stop()
+        
+        start = valid_dates.min().date()
+        end = valid_dates.max().date()
 
     # =========================
     # MONTH TITLE (MONTH VIEW ONLY)
