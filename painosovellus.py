@@ -67,8 +67,26 @@ def load_data():
 
 def save_data(session):
     for r in session:
-        r["reps_list"] = list(map(int, r.get("reps_list", [])))  # FIX JSON SAFE
-        supabase.table("workouts").insert(r).execute()
+        payload = dict(r)
+
+        # --- DATE FIX (Supabase likes ISO format) ---
+        payload["date"] = pd.to_datetime(payload["date"]).strftime("%Y-%m-%d")
+
+        # --- JSON SAFETY ---
+        payload["reps_list"] = [int(x) for x in payload.get("reps_list", [])]
+
+        # --- SAFE NUMBERS (remove NaN / numpy types) ---
+        for k, v in payload.items():
+            if isinstance(v, (np.floating, np.integer)):
+                payload[k] = v.item()
+            if pd.isna(v):
+                payload[k] = None
+
+        # --- skipped MUST be plain bool ---
+        payload["skipped"] = bool(payload.get("skipped", False))
+
+        # --- INSERT ---
+        supabase.table("workouts").insert(payload).execute()
 
 data = load_data()
 
