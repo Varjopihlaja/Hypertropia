@@ -361,21 +361,28 @@ elif page == "Dashboard":
                 with container:
                     st.markdown(f"""
                     <div style="
-                        background:#f3f4f6;
+                        background:{color};
                         padding:10px;
                         border-radius:12px;
+                        color:white;
                         text-align:center;
-                        height:140px;
+                        height:120px;
                         display:flex;
                         flex-direction:column;
                         justify-content:space-between;
-                        color:#9ca3af;
+                        margin-bottom: -8px;
                     ">
                         <div style="font-size:26px;"><b>{day.day}</b></div>
-                        <div>Rest</div>
-                        <div></div>
+                        <div style="font-size:16px;">{label}</div>
+                        <div style="font-size:14px;">{round(vol,1)} kg</div>
                     </div>
                     """, unsafe_allow_html=True)
+                
+                    # visually "inside"
+                    st.markdown("<div style='margin-top:-35px'></div>", unsafe_allow_html=True)
+                
+                    if st.button("View", key=f"view_{day}"):
+                        st.session_state.selected_day = day
 
     # =========================
     # SHOW SESSION ONLY IF CLICKED
@@ -437,7 +444,7 @@ elif page == "Dashboard":
                     "muscle": row["muscle"],
                     "sets": sets,
                     "reps_list": new_reps,
-                    "avg_reps": sum(new_reps)/len(new_reps),
+                    "avg_reps": sum(new_reps) / max(len(new_reps), 1),
                     "rpe": rpe,
                     "weight": weight,
                     "volume": sum(new_reps)*weight
