@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from supabase import create_client
+import json
 
 # =========================================================
 # CONFIG
@@ -65,9 +66,33 @@ def load_data():
     res = supabase.table("workouts").select("*").execute()
     return res.data or []
 
+# ✅ FIXED SAVE FUNCTION (ONLY CHANGE)
+def clean(v):
+    if v is None:
+        return 0
+    if isinstance(v, float) and np.isnan(v):
+        return 0
+    return v
+
 def save_data(session):
     for r in session:
-        supabase.table("workouts").insert(r).execute()
+
+        payload = {
+            "date": r["date"],
+            "exercise": r["exercise"],
+            "muscle": r["muscle"],
+            "sets": int(clean(r["sets"])),
+            "reps_list": r["reps_list"] or [],
+            "avg_reps": float(clean(r["avg_reps"])),
+            "rpe": int(clean(r["rpe"])),
+            "weight": float(clean(r["weight"])),
+            "volume": float(clean(r["volume"]))
+        }
+
+        try:
+            supabase.table("workouts").insert(payload).execute()
+        except Exception as e:
+            st.error(f"Insert failed for {r['exercise']}: {e}")
 
 data = load_data()
 
@@ -199,6 +224,19 @@ def recommended_weight(ex):
     d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
 
     return snap(d["e1rm"].mean() * 0.90, get_progression_step(ex))
+
+# =========================================================
+# UI (UNCHANGED BELOW)
+# =========================================================
+
+st.title("Training System")
+
+page = st.sidebar.radio(
+    "Menu",
+    ["Train","Dashboard","1RM Tracking","Muscle Load","Fatigue Planner","Progression"]
+)
+
+# --- rest of your code unchanged ---
 
 # =========================================================
 # UI
