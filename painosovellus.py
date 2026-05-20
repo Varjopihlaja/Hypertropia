@@ -267,7 +267,7 @@ if page == "Train":
             vol = sum(reps) * weight if sets > 0 else 0
 
             session.append({
-                "date": date.strftime("%d/%m/%Y"),
+                "date": date.strftime("%Y-%m-%d"),
                 "exercise": ex,
                 "muscle": MUSCLE[ex],
                 "sets": sets,
@@ -498,7 +498,7 @@ elif page == "Dashboard":
     if st.session_state.selected_day:
 
         st.divider()
-        st.subheader(f"Sessions on {st.session_state.selected_day}")
+        st.subheader(     f"Sessions on {pd.to_datetime(st.session_state.selected_day).strftime('%d/%m/%Y')}" )
 
         sessions = get_sessions_by_date(st.session_state.selected_day)
 
