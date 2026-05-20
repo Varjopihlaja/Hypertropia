@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from supabase import create_client
-import json
 
 # =========================================================
 # CONFIG
@@ -66,33 +65,10 @@ def load_data():
     res = supabase.table("workouts").select("*").execute()
     return res.data or []
 
-# ✅ FIXED SAVE FUNCTION (ONLY CHANGE)
-def clean(v):
-    if v is None:
-        return 0
-    if isinstance(v, float) and np.isnan(v):
-        return 0
-    return v
-
 def save_data(session):
     for r in session:
-
-        payload = {
-            "date": r["date"],
-            "exercise": r["exercise"],
-            "muscle": r["muscle"],
-            "sets": int(clean(r["sets"])),
-            "reps_list": r["reps_list"] or [],
-            "avg_reps": float(clean(r["avg_reps"])),
-            "rpe": int(clean(r["rpe"])),
-            "weight": float(clean(r["weight"])),
-            "volume": float(clean(r["volume"]))
-        }
-
-        try:
-            supabase.table("workouts").insert(payload).execute()
-        except Exception as e:
-            st.error(f"Insert failed for {r['exercise']}: {e}")
+        r["reps_list"] = list(map(int, r.get("reps_list", [])))  # FIX JSON SAFE
+        supabase.table("workouts").insert(r).execute()
 
 data = load_data()
 
@@ -130,20 +106,6 @@ def session_summary(df):
         "volume": "sum",
         "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
     }).reset_index()
-
-def weekly_fatigue(df):
-    df = valid_lifts(df.copy())
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
-    return df.groupby(["week", "muscle"])["volume"].sum().reset_index()
-
-def weekly_exercise_volume(df):
-    df = valid_lifts(df.copy())
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-
-    return df.groupby(["exercise", "week"])["volume"].sum().reset_index()
 
 def day_meta(summary_df):
     meta = {}
@@ -193,6 +155,8 @@ def is_assisted(ex):
     return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
 
 def progression(ex, reps, rpe, weight):
+    reps = list(map(int, reps))  # FIX JSON SAFETY
+
     if len(reps) == 0 or sum(reps) == 0:
         return weight, "skipped session"
 
@@ -214,29 +178,6 @@ def progression(ex, reps, rpe, weight):
         return weight, "build reps"
 
     return weight, "maintain"
-
-def recommended_weight(ex):
-    d = valid_lifts(df[df["exercise"] == ex])
-    if d.empty:
-        return 20
-
-    d = d.sort_values("date").tail(6)
-    d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
-
-    return snap(d["e1rm"].mean() * 0.90, get_progression_step(ex))
-
-# =========================================================
-# UI (UNCHANGED BELOW)
-# =========================================================
-
-st.title("Training System")
-
-page = st.sidebar.radio(
-    "Menu",
-    ["Train","Dashboard","1RM Tracking","Muscle Load","Fatigue Planner","Progression"]
-)
-
-# --- rest of your code unchanged ---
 
 # =========================================================
 # UI
