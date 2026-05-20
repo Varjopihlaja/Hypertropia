@@ -179,6 +179,17 @@ def progression(ex, reps, rpe, weight):
 
     return weight, "maintain"
 
+# ✅ ADD THIS BACK
+def recommended_weight(ex):
+    d = valid_lifts(df[df["exercise"] == ex])
+    if d.empty:
+        return 20
+
+    d = d.sort_values("date").tail(6)
+    d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
+
+    return snap(d["e1rm"].mean() * 0.90, get_progression_step(ex))
+
 # =========================================================
 # UI
 # =========================================================
