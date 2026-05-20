@@ -121,6 +121,10 @@ def day_meta(summary_df):
         }
     return meta
 
+def get_sessions_by_date(date):
+    d = df.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    return d[d["date"].dt.date == date]
 # =========================================================
 # FORECAST
 # =========================================================
@@ -303,6 +307,8 @@ if page == "Train":
 
 elif page == "Dashboard":
     st.title("Calendar")
+    if "selected_day" not in st.session_state:
+    st.session_state.selected_day = None
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     summary = session_summary(df)
@@ -346,20 +352,111 @@ elif page == "Dashboard":
             color = "#2563eb" if label=="Upper" else "#16a34a"
 
             box = f"""
-            <div style="border:1px solid #ccc;border-radius:10px;background:{color};color:white;padding:10px;min-height:90px;text-align:center">
-                <div style="font-size:26px">{day.day}</div>
-                <div>{label}</div>
-                <div>{round(vol,1)} kg</div>
-            </div>"""
+            <div style="
+            border:1px solid #ccc;
+            border-radius:10px;
+            background:{color};
+            color:white;
+            padding:10px;
+            height:120px;
+            display:flex;
+            flex-direction:column;
+            justify-content:space-between;
+            text-align:center;
+            overflow:hidden;
+        ">
+            <div style="font-size:26px">{day.day}</div>
+            <div>{label}</div>
+            <div>{round(vol,1)} kg</div>
+        </div>
+"""
         else:
             box = f"""
-            <div style="border:1px solid #e5e7eb;border-radius:10px;background:#f3f4f6;padding:10px;min-height:90px;text-align:center;color:#9ca3af">
+            <div style="
+                border:1px solid #e5e7eb;
+                border-radius:10px;
+                background:#f3f4f6;
+                padding:10px;
+                height:120px;
+                display:flex;
+                flex-direction:column;
+                justify-content:space-between;
+                text-align:center;
+                color:#9ca3af;
+            ">
                 <div style="font-size:26px">{day.day}</div>
                 <div>Rest</div>
-            </div>"""
+                <div></div>
+            </div>
+            """
 
+        if col.button(str(day), key=str(day)):     
+            st.session_state.selected_day = day  
         col.markdown(box, unsafe_allow_html=True)
 
+    if st.session_state.selected_day:
+        st.subheader(f"Sessions on {st.session_state.selected_day}")
+    
+        sessions = get_sessions_by_date(st.session_state.selected_day)
+    
+        if sessions.empty:
+            st.info("No sessions logged.")
+        else:
+            edited = []
+    
+            for i, row in sessions.iterrows():
+                st.markdown(f"### {row['exercise']}")
+    
+                weight = st.number_input(
+                    "Weight",
+                    value=float(row["weight"]),
+                    key=f"edit_w_{i}"
+                )
+    
+                sets = st.number_input(
+                    "Sets",
+                    value=int(row["sets"]),
+                    key=f"edit_s_{i}"
+                )
+    
+                reps_list = row["reps_list"]
+                new_reps = []
+    
+                cols2 = st.columns(len(reps_list))
+    
+                for j, r in enumerate(reps_list):
+                    with cols2[j]:
+                        new_reps.append(
+                            st.number_input(
+                                f"R{j+1}",
+                                value=int(r),
+                                key=f"edit_r_{i}_{j}"
+                            )
+                        )
+    
+                edited.append({
+                    "id": row.get("id"),
+                    "date": row["date"],
+                    "exercise": row["exercise"],
+                    "muscle": row["muscle"],
+                    "sets": sets,
+                    "reps_list": new_reps,
+                    "avg_reps": sum(new_reps)/len(new_reps),
+                    "rpe": row["rpe"],
+                    "weight": weight,
+                    "volume": sum(new_reps)*weight
+                })
+    
+            if st.button("Save edits"):
+                for r in edited:
+                    supabase.table("workouts") \
+                        .update(r) \
+                        .eq("id", r["id"]) \
+                        .execute()
+    
+                st.success("Updated!")
+                st.rerun()
+    
     st.line_chart(summary.set_index("date")["volume"])
 
 # =========================================================
