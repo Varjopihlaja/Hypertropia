@@ -674,28 +674,45 @@ elif page == "Fatigue Planner":
     col3.metric("Fatigue Index", round(avg_fatigue, 2))
 
     # =========================================================
-    # CHART
-    # =========================================================
-    import altair as alt
+# MUSCLE GROUP FILTER (NEW)
+# =========================================================
 
-    base = alt.Chart(daily).encode(
-        x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
-    )
+muscle_groups = sorted(d["muscle"].dropna().unique())
 
-    fatigue_line = base.mark_line(point=True).encode(
-        y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
-        color=alt.Color("muscle:N"),
-        tooltip=["date", "muscle", "fatigue_index", "acute", "chronic"]
-    )
+selected_muscle = st.selectbox(
+    "Muscle group",
+    muscle_groups,
+    index=0
+)
 
-    zones = pd.DataFrame({"y": [0.8, 1.3, 1.6]})
+filtered = daily[daily["muscle"] == selected_muscle].copy()
 
-    zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6, 6]).encode(
-        y="y:Q"
-    )
+if filtered.empty:
+    st.warning("No data for this muscle in selected period.")
+    st.stop()
 
-    st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
+# =========================================================
+# CHART (SINGLE MUSCLE ONLY)
+# =========================================================
 
+import altair as alt
+
+base = alt.Chart(filtered).encode(
+    x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
+)
+
+fatigue_line = base.mark_line(point=True).encode(
+    y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
+    tooltip=["date", "fatigue_index", "acute", "chronic"]
+)
+
+zones = pd.DataFrame({"y": [0.8, 1.3, 1.6]})
+
+zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6, 6]).encode(
+    y="y:Q"
+)
+
+st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
     # =========================================================
     # INTERPRETATION (ALWAYS SHOWN)
     # =========================================================
