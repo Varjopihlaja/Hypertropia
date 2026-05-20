@@ -673,46 +673,46 @@ elif page == "Fatigue Planner":
     col2.metric("Chronic Load", round(latest["chronic"].mean(), 1))
     col3.metric("Fatigue Index", round(avg_fatigue, 2))
 
+        # =========================================================
+    # MUSCLE GROUP FILTER (NEW)
     # =========================================================
-# MUSCLE GROUP FILTER (NEW)
-# =========================================================
-
-muscle_groups = sorted(d["muscle"].dropna().unique())
-
-selected_muscle = st.selectbox(
-    "Muscle group",
-    muscle_groups,
-    index=0
-)
-
-filtered = daily[daily["muscle"] == selected_muscle].copy()
-
-if filtered.empty:
-    st.warning("No data for this muscle in selected period.")
-    st.stop()
-
-# =========================================================
-# CHART (SINGLE MUSCLE ONLY)
-# =========================================================
-
-import altair as alt
-
-base = alt.Chart(filtered).encode(
-    x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
-)
-
-fatigue_line = base.mark_line(point=True).encode(
-    y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
-    tooltip=["date", "fatigue_index", "acute", "chronic"]
-)
-
-zones = pd.DataFrame({"y": [0.8, 1.3, 1.6]})
-
-zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6, 6]).encode(
-    y="y:Q"
-)
-
-st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
+    
+    muscle_groups = sorted(d["muscle"].dropna().unique())
+    
+    selected_muscle = st.selectbox(
+        "Muscle group",
+        muscle_groups,
+        index=0
+    )
+    
+    filtered = daily[daily["muscle"] == selected_muscle].copy()
+    
+    if filtered.empty:
+        st.warning("No data for this muscle in selected period.")
+        st.stop()
+    
+    # =========================================================
+    # CHART (SINGLE MUSCLE ONLY)
+    # =========================================================
+    
+    import altair as alt
+    
+    base = alt.Chart(filtered).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%d.%m"))
+    )
+    
+    fatigue_line = base.mark_line(point=True).encode(
+        y=alt.Y("fatigue_index:Q", title="Fatigue Index"),
+        tooltip=["date", "fatigue_index", "acute", "chronic"]
+    )
+    
+    zones = pd.DataFrame({"y": [0.8, 1.3, 1.6]})
+    
+    zone_lines = alt.Chart(zones).mark_rule(strokeDash=[6, 6]).encode(
+        y="y:Q"
+    )
+    
+    st.altair_chart(fatigue_line + zone_lines, use_container_width=True)
     # =========================================================
     # INTERPRETATION (ALWAYS SHOWN)
     # =========================================================
