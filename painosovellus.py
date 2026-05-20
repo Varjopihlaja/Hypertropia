@@ -285,8 +285,12 @@ elif page == "Dashboard":
     if "selected_day" not in st.session_state:
         st.session_state.selected_day = None
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    # =========================================================
+    # FORCE CLEAN DATE PARSING (FIXES MISSING 19.5 ISSUE)
+    # =========================================================
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
     summary = session_summary(df)
+    summary["date"] = pd.to_datetime(summary["date"]).dt.date
     meta = day_meta(summary)
 
     view = st.radio("View", ["Week", "Month", "3 Months", "All"], horizontal=True)
@@ -294,30 +298,23 @@ elif page == "Dashboard":
     today = datetime.today().date()
 
     # =========================================================
-    # FIXED TIME WINDOWS
+    # TIME WINDOWS (FIXED WEEK)
     # =========================================================
     if view == "Week":
-        start = today - timedelta(days=today.weekday())  # Monday
+        start = today - timedelta(days=today.weekday())
         end = start + timedelta(days=6)
 
     elif view == "Month":
         start = today.replace(day=1)
-        end = (start + pd.offsets.MonthEnd(1)).date()
+        end = (pd.Timestamp(start) + pd.offsets.MonthEnd(1)).date()
 
     elif view == "3 Months":
         start = (today.replace(day=1) - pd.DateOffset(months=2)).date()
         end = today
 
     else:
-        start = df["date"].min().date()
-        end = df["date"].max().date()
-
-    # =========================================================
-    # GRID ALIGNMENT (FULL WEEK GRID)
-    # =========================================================
-    grid_start = start - timedelta(days=start.weekday())
-    grid_end = end + timedelta(days=(6 - end.weekday()))
-    grid = pd.date_range(grid_start, grid_end)
+        start = df["date"].min()
+        end = df["date"].max()
 
     # =========================================================
     # COLORS
@@ -328,14 +325,45 @@ elif page == "Dashboard":
     text_rest = "#6b7280"
     text_out = "#9ca3af"
 
-    weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    weekday_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+
+    # =========================================================
+    # HELPERS
+    # =========================================================
+    def render_box(day, color, label, vol, text_color):
+        return f"""
+        <div style="
+            background:{color};
+            border: 1px solid {border};
+            padding:10px;
+            border-radius:12px;
+            color:{text_color};
+            text-align:center;
+            height:140px;
+            display:flex;
+            flex-direction:column;
+            justify-content:space-between;
+        ">
+            <div style="font-size:26px;"><b>{day.day}</b></div>
+            <div style="font-size:14px;">{label}</div>
+            <div style="font-size:12px;">{vol}</div>
+        </div>
+        """
+
+    # =========================================================
+    # WEEK / MONTH / ALL GRID LOGIC
+    # =========================================================
+    grid_start = start - timedelta(days=start.weekday())
+    grid_end = end + timedelta(days=(6 - end.weekday()))
+    grid = pd.date_range(grid_start, grid_end)
+
     cols = st.columns(7)
 
     for i, d in enumerate(weekday_names):
         cols[i].markdown(f"<h4 style='text-align:center'>{d}</h4>", unsafe_allow_html=True)
 
     # =========================================================
-    # CALENDAR GRID
+    # RENDER CALENDAR
     # =========================================================
     for i, d in enumerate(grid):
         col = cols[i % 7]
@@ -344,62 +372,54 @@ elif page == "Dashboard":
         in_range = start <= day <= end
         is_training = day in meta
 
-        # -------------------------
-        # DEFAULT (overflow days)
-        # -------------------------
+        # defaults
         color = out_color
         label = ""
         vol = ""
         text_color = text_out
 
-        # -------------------------
-        # REST DAY (inside range)
-        # -------------------------
         if in_range and not is_training:
             color = rest_color
             label = "Rest"
             vol = 0
             text_color = text_rest
 
-        # -------------------------
-        # TRAINING DAY
-        # -------------------------
-        if is_training and in_range:
+        if in_range and is_training:
             vol = meta[day]["volume"]
             label = "Lower" if meta[day]["muscle"] == "legs" else "Upper"
             color = "#16a34a" if label == "Lower" else "#2563eb"
             text_color = "white"
 
         with col:
-            container = st.container()
+            st.markdown(render_box(day, color, label, vol, text_color), unsafe_allow_html=True)
 
-            with container:
-                st.markdown(f"""
-                <div style="
-                    background:{color};
-                    border: 1px solid {border};
-                    padding:10px;
-                    border-radius:12px;
-                    color:{text_color};
-                    text-align:center;
-                    height:140px;
-                    display:flex;
-                    flex-direction:column;
-                    justify-content:space-between;
-                ">
-                    <div style="font-size:26px;"><b>{day.day}</b></div>
-                    <div style="font-size:14px;">{label}</div>
-                    <div style="font-size:12px;">{vol}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if in_range and st.button("View", key=f"view_{day}"):
-                    st.session_state.selected_day = day
+            if in_range and st.button("View", key=f"view_{day}"):
+                st.session_state.selected_day = day
 
     # =========================================================
-    # SESSION DETAIL VIEW
+    # MONTH TITLE FIX
     # =========================================================
-    if st.session_state.selected_day is not None:
+    if view == "Month":
+        st.subheader(today.strftime("%B %Y"))
+
+    # =========================================================
+    # 3-MONTH VIEW FIX (MONTH BREAKDOWN)
+    # =========================================================
+    if view == "3 Months":
+        st.markdown("### Monthly breakdown")
+
+        df_month = pd.DataFrame({"date": pd.to_datetime(df["date"])})
+        df_month["month"] = df_month["date"].dt.to_period("M")
+
+        months = sorted(df_month["month"].unique())
+
+        for m in months:
+            st.markdown(f"## {m.strftime('%B %Y')}")
+
+    # =========================================================
+    # SESSION DETAIL
+    # =========================================================
+    if st.session_state.selected_day:
 
         st.divider()
         st.subheader(f"Sessions on {st.session_state.selected_day}")
@@ -414,17 +434,8 @@ elif page == "Dashboard":
             for i, row in sessions.iterrows():
                 st.markdown(f"### {row['exercise']}")
 
-                weight = st.number_input(
-                    "Weight",
-                    value=float(row["weight"]),
-                    key=f"edit_w_{i}"
-                )
-
-                sets = st.number_input(
-                    "Sets",
-                    value=int(row["sets"]),
-                    key=f"edit_s_{i}"
-                )
+                weight = st.number_input("Weight", value=float(row["weight"]), key=f"w{i}")
+                sets = st.number_input("Sets", value=int(row["sets"]), key=f"s{i}")
 
                 reps_list = row["reps_list"]
                 new_reps = []
@@ -434,38 +445,29 @@ elif page == "Dashboard":
                 for j, r in enumerate(reps_list):
                     with cols2[j]:
                         new_reps.append(
-                            st.number_input(
-                                f"R{j+1}",
-                                value=int(r),
-                                key=f"edit_r_{i}_{j}"
-                            )
+                            st.number_input(f"R{j}", value=int(r), key=f"r{i}{j}")
                         )
 
-                rpe = st.slider(
-                    "RPE",
-                    1, 10,
-                    int(row["rpe"]),
-                    key=f"edit_rpe_{i}"
-                )
+                rpe = st.slider("RPE", 1, 10, int(row["rpe"]), key=f"rpe{i}")
 
                 edited.append({
                     "id": row.get("id"),
-                    "date": row["date"],
+                    "date": str(st.session_state.selected_day),
                     "exercise": row["exercise"],
                     "muscle": row["muscle"],
                     "sets": sets,
                     "reps_list": new_reps,
-                    "avg_reps": sum(new_reps) / max(len(new_reps), 1),
+                    "avg_reps": sum(new_reps)/max(len(new_reps),1),
                     "rpe": rpe,
                     "weight": weight,
-                    "volume": sum(new_reps) * weight
+                    "volume": sum(new_reps)*weight
                 })
 
             if st.button("Save edits"):
                 for r in edited:
                     supabase.table("workouts") \
                         .update({
-                            "date": str(r["date"]),
+                            "date": r["date"],
                             "exercise": r["exercise"],
                             "muscle": r["muscle"],
                             "sets": int(r["sets"]),
