@@ -462,27 +462,27 @@ elif page == "Dashboard":
 
 
             if st.button("Save edits"):
-            for r in edited:
-        
-                clean_payload = {
-                    "date": str(r["date"]),  # FIX: force string
-                    "exercise": r["exercise"],
-                    "muscle": r["muscle"],
-                    "sets": int(r["sets"]),
-                    "reps_list": [int(x) for x in r["reps_list"]],  # FIX numpy safety
-                    "avg_reps": float(r["avg_reps"]),
-                    "rpe": int(r["rpe"]),
-                    "weight": float(r["weight"]),
-                    "volume": float(r["volume"])
-                }
-        
-                supabase.table("workouts") \
-                    .update(clean_payload) \
-                    .eq("id", r["id"]) \
-                    .execute()
-        
-            st.success("Updated!")
-            st.rerun()
+                for r in edited:
+            
+                    clean_payload = {
+                        "date": str(r["date"]),  # FIX: force string
+                        "exercise": r["exercise"],
+                        "muscle": r["muscle"],
+                        "sets": int(r["sets"]),
+                        "reps_list": [int(x) for x in r["reps_list"]],  # FIX numpy safety
+                        "avg_reps": float(r["avg_reps"]),
+                        "rpe": int(r["rpe"]),
+                        "weight": float(r["weight"]),
+                        "volume": float(r["volume"])
+                    }
+            
+                    supabase.table("workouts") \
+                        .update(clean_payload) \
+                        .eq("id", r["id"]) \
+                        .execute()
+            
+                st.success("Updated!")
+                st.rerun()
 
     st.line_chart(summary.set_index("date")["volume"])
 
