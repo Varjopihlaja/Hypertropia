@@ -283,6 +283,15 @@ elif page == "Dashboard":
         st.session_state.selected_day = None
 
     # =========================
+    # TOGGLE VIEW (CLICK AGAIN CLOSES)
+    # =========================
+    def toggle_day(day):
+        if st.session_state.selected_day == day:
+            st.session_state.selected_day = None
+        else:
+            st.session_state.selected_day = day
+
+    # =========================
     # SAFE DATE NORMALIZATION
     # =========================
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
@@ -314,18 +323,19 @@ elif page == "Dashboard":
         end = max(df["date"])
 
     # =========================
-    # STYLES
+    # STYLE
     # =========================
     HEIGHT = "140px"
 
     rest_color = "#e5e7eb"
-    out_color = "#ffffff"
     border = "#d1d5db"
     text_rest = "#6b7280"
-    text_out = "#9ca3af"
 
-    weekday_names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+    # =========================
+    # BOX RENDER
+    # =========================
     def render_box(day, color, label, vol, text_color, border_color):
         return f"""
         <div style="
@@ -347,16 +357,17 @@ elif page == "Dashboard":
         """
 
     # =========================
-    # CALENDAR CORE RENDERER
+    # CALENDAR CORE
     # =========================
-    def render_calendar(grid, start, end, meta, title=None):
+    def render_calendar(grid, start, end, meta, title=None, scope="main"):
 
-        # 🔥 TITLE MUST BE HERE (top of section)
+        # TITLE ALWAYS TOP
         if title:
             st.markdown(f"## {title}")
 
-        # weekday headers FIRST
         cols = st.columns(7)
+
+        # headers
         for i, name in enumerate(weekday_names):
             cols[i].markdown(
                 f"<h4 style='text-align:center'>{name}</h4>",
@@ -371,34 +382,40 @@ elif page == "Dashboard":
             in_range = start <= day <= end
             is_training = day in meta
 
-            # =====================
-            # DEFAULT (spillover)
-            # =====================
-            color = "#f9fafb"
             label = ""
             vol = ""
-            text_color = "#e5e7eb"
+            text_color = "#9ca3af"
             border_color = "#f3f4f6"
+            color = "#f9fafb"
 
-            # =====================
-            # REST DAY
-            # =====================
-            if in_range and not is_training:
-                color = rest_color
-                label = "Rest"
-                vol = 0
-                text_color = text_rest
-                border_color = border
-
-            # =====================
+            # =========================
             # TRAINING DAY
-            # =====================
-            elif is_training:
+            # =========================
+            if is_training:
                 vol = meta[day]["volume"]
                 label = "Lower" if meta[day]["muscle"] == "legs" else "Upper"
-                color = "#16a34a" if label == "Lower" else "#2563eb"
-                text_color = "white"
-                border_color = color
+
+                base = "#16a34a" if label == "Lower" else "#2563eb"
+
+                if in_range:
+                    color = base
+                    text_color = "white"
+                    border_color = base
+                else:
+                    # 🔥 FADED TRAINING COLOR (FIX REQUEST)
+                    color = base + "33"
+                    text_color = base
+                    border_color = base + "55"
+
+            # =========================
+            # REST DAY
+            # =========================
+            elif in_range:
+                color = rest_color
+                text_color = text_rest
+                border_color = border
+                label = "Rest"
+                vol = 0
 
             with col:
                 st.markdown(
@@ -406,18 +423,18 @@ elif page == "Dashboard":
                     unsafe_allow_html=True
                 )
 
-                # 🔥 ALWAYS SHOW BUTTON (prevents layout shift)
-                clicked = st.button(
-                    "View",
-                    key=f"view_{day}",
-                    disabled=not in_range
-                )
-
-                if clicked and in_range:
-                    st.session_state.selected_day = day
+                # =========================
+                # VIEW TOGGLE BUTTON (FIX)
+                # =========================
+                if in_range:
+                    if st.button(
+                        "Close" if st.session_state.selected_day == day else "View",
+                        key=f"view_{scope}_{day}"
+                    ):
+                        toggle_day(day)
 
     # =========================
-    # BUILD GRID
+    # GRID BUILDER
     # =========================
     def build_grid(start, end):
         grid_start = start - timedelta(days=start.weekday())
@@ -425,7 +442,7 @@ elif page == "Dashboard":
         return pd.date_range(grid_start, grid_end)
 
     # =========================
-    # 3 MONTH VIEW (FIXED)
+    # 3 MONTH VIEW
     # =========================
     if view == "3 Months":
 
@@ -446,7 +463,8 @@ elif page == "Dashboard":
                 m_start,
                 m_end,
                 meta,
-                title=m_start.strftime("%B %Y")
+                title=m_start.strftime("%B %Y"),
+                scope=f"m_{m_start}"
             )
 
             st.divider()
@@ -458,14 +476,22 @@ elif page == "Dashboard":
         grid = build_grid(start, end)
 
         if view == "Month":
-            render_calendar(grid, start, end, meta, title=start.strftime("%B %Y"))
+            render_calendar(
+                grid,
+                start,
+                end,
+                meta,
+                title=start.strftime("%B %Y"),
+                scope="main"
+            )
         else:
-            render_calendar(grid, start, end, meta)
+            render_calendar(grid, start, end, meta, scope="main")
 
     # =========================
-    # SESSION DETAIL VIEW
+    # SESSION DETAIL PANEL
     # =========================
     if st.session_state.selected_day is not None:
+
         st.divider()
         st.subheader(f"Sessions on {st.session_state.selected_day}")
 
@@ -526,7 +552,7 @@ elif page == "Dashboard":
                 st.rerun()
 
     # =========================
-    # SUMMARY CHART
+    # SUMMARY
     # =========================
     st.line_chart(summary.set_index("date")["volume"])
 
