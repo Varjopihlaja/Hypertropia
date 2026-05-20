@@ -28,6 +28,43 @@ def get_target_reps():
 def get_progression_step(ex):
     return 1.25 if "machine row" in ex.lower() else 2.5
 
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def normalize_date(x):
+    return pd.to_datetime(x, errors="coerce").date()
+
+def session_summary(df):
+    if df.empty:
+        return df
+
+    df = valid_lifts(df.copy())
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
+
+    return df.groupby("date").agg({
+        "volume": "sum",
+        "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
+    }).reset_index()
+
+def day_meta(summary_df):
+    meta = {}
+    for _, r in summary_df.iterrows():
+        meta[r["date"]] = {
+            "volume": float(r["volume"]),
+            "muscle": r["muscle"]
+        }
+    return meta
+
+def get_sessions_by_date(date):
+    d = df.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce", dayfirst=True)
+    return d[d["date"].dt.date == date]
+
+def fmt_date(d):
+    return pd.to_datetime(d, errors="coerce").strftime("%d.%m.%Y")
+
 # =========================================================
 # AUTH
 # =========================================================
@@ -76,10 +113,18 @@ def save_data(session):
         payload["reps_list"] = [int(x) for x in payload.get("reps_list", [])]
 
         # --- SAFE NUMBERS (remove NaN / numpy types) ---
-        for k, v in payload.items():
+        for k, v in list(payload.items()):
+
+            # skip list-like fields (like reps_list)
+            if isinstance(v, (list, dict)):
+                continue
+        
+            # convert numpy types
             if isinstance(v, (np.floating, np.integer)):
                 payload[k] = v.item()
-            if pd.isna(v):
+        
+            # safe NaN check ONLY for scalars
+            if isinstance(v, (float, int)) and pd.isna(v):
                 payload[k] = None
 
         # --- skipped MUST be plain bool ---
@@ -113,38 +158,6 @@ def valid_lifts(df):
 
     return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
 
-# =========================================================
-# HELPERS
-# =========================================================
-
-def normalize_date(x):
-    return pd.to_datetime(x, errors="coerce").date()
-
-def session_summary(df):
-    if df.empty:
-        return df
-
-    df = valid_lifts(df.copy())
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
-
-    return df.groupby("date").agg({
-        "volume": "sum",
-        "muscle": lambda x: x.mode()[0] if len(x) else "unknown"
-    }).reset_index()
-
-def day_meta(summary_df):
-    meta = {}
-    for _, r in summary_df.iterrows():
-        meta[r["date"]] = {
-            "volume": float(r["volume"]),
-            "muscle": r["muscle"]
-        }
-    return meta
-
-def get_sessions_by_date(date):
-    d = df.copy()
-    d["date"] = pd.to_datetime(d["date"], errors="coerce", dayfirst=True)
-    return d[d["date"].dt.date == date]
 
 # =========================================================
 # EXERCISES
@@ -501,7 +514,7 @@ elif page == "Dashboard":
     if st.session_state.selected_day:
 
         st.divider()
-        st.subheader(     f"Sessions on {pd.to_datetime(st.session_state.selected_day).strftime('%d/%m/%Y')}" )
+        st.subheader(f"Sessions on {fmt_date(st.session_state.selected_day)}")
 
         sessions = get_sessions_by_date(st.session_state.selected_day)
 
@@ -597,7 +610,7 @@ elif page == "Muscle Load":
 
     st.title("Muscle Load")
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
     view = st.radio("View", ["Week", "Month"], horizontal=True)
 
