@@ -28,13 +28,25 @@ def get_target_reps():
 def get_progression_step(ex):
     return 1.25 if "machine row" in ex.lower() else 2.5
 
-
 # =========================================================
 # HELPERS
 # =========================================================
 
+def valid_lifts(df):
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["sets"] = pd.to_numeric(df["sets"], errors="coerce").fillna(0)
+    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+
+    return df[(df["sets"] > 0) & (df["volume"] > 0)]
+
 def normalize_date(x):
     return pd.to_datetime(x, errors="coerce").date()
+
+def fmt_date(d):
+    return pd.to_datetime(d, errors="coerce").strftime("%d.%m.%Y")
 
 def session_summary(df):
     if df.empty:
@@ -61,9 +73,6 @@ def get_sessions_by_date(date):
     d = df.copy()
     d["date"] = pd.to_datetime(d["date"], errors="coerce", dayfirst=True)
     return d[d["date"].dt.date == date]
-
-def fmt_date(d):
-    return pd.to_datetime(d, errors="coerce").strftime("%d.%m.%Y")
 
 # =========================================================
 # AUTH
@@ -106,31 +115,21 @@ def save_data(session):
     for r in session:
         payload = dict(r)
 
-        # --- DATE FIX (Supabase likes ISO format) ---
+        # date fix
         payload["date"] = pd.to_datetime(payload["date"]).strftime("%Y-%m-%d")
 
-        # --- JSON SAFETY ---
-        payload["reps_list"] = [int(x) for x in payload.get("reps_list", [])]
+        # reps safety
+        payload["reps_list"] = [int(x) for x in payload.get("reps_list", []) if x is not None]
 
-        # --- SAFE NUMBERS (remove NaN / numpy types) ---
+        # clean numpy + NaN
         for k, v in list(payload.items()):
-
-            # skip list-like fields (like reps_list)
-            if isinstance(v, (list, dict)):
-                continue
-        
-            # convert numpy types
             if isinstance(v, (np.floating, np.integer)):
                 payload[k] = v.item()
-        
-            # safe NaN check ONLY for scalars
             if isinstance(v, (float, int)) and pd.isna(v):
                 payload[k] = None
 
-        # --- skipped MUST be plain bool ---
-        payload["skipped"] = bool(payload.get("skipped", False))
+        # ❌ REMOVED: performed / skipped logic
 
-        # --- INSERT ---
         supabase.table("workouts").insert(payload).execute()
 
 data = load_data()
@@ -144,20 +143,6 @@ def safe_df():
     return pd.DataFrame(data)
 
 df = safe_df()
-
-# =========================================================
-# CORE FILTER
-# =========================================================
-
-def valid_lifts(df):
-    if df.empty:
-        return df
-
-    if "skipped" in df.columns:
-        df = df[df["skipped"] != True]
-
-    return df[(df["sets"] > 0) & (df["volume"] > 0)].copy()
-
 
 # =========================================================
 # EXERCISES
@@ -193,10 +178,10 @@ def is_assisted(ex):
     return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
 
 def progression(ex, reps, rpe, weight):
-    reps = list(map(int, reps))  # FIX JSON SAFETY
+    reps = list(map(int, reps))
 
     if len(reps) == 0 or sum(reps) == 0:
-        return weight, "skipped session"
+        return weight, "no work"
 
     avg = sum(reps)/len(reps)
     step = get_step(ex)
@@ -217,7 +202,6 @@ def progression(ex, reps, rpe, weight):
 
     return weight, "maintain"
 
-# ✅ ADD THIS BACK
 def recommended_weight(ex):
     d = valid_lifts(df[df["exercise"] == ex].copy())
     if d.empty:
@@ -291,8 +275,7 @@ if page == "Train":
                 "avg_reps": sum(reps)/max(len(reps),1),
                 "rpe": rpe,
                 "weight": weight,
-                "volume": vol,
-                "performed": sets > 0
+                "volume": vol
             })
 
     if st.button("Save"):
