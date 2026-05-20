@@ -187,16 +187,26 @@ def progression(ex, reps, rpe, weight):
     step = get_step(ex)
 
     if is_assisted(ex):
+        # NOTE:
+        # higher weight = MORE assistance = easier
+    
         if rpe >= 9:
-            return snap(weight + step, step), "increase assistance"
+            return snap(weight + step, step), "increase assistance (easier)"
+    
         if avg >= 12 and rpe <= 8:
-            return snap(weight - step, step), "reduce assistance"
+            return snap(weight - step, step), "reduce assistance (harder)"
+    
         return weight, "maintain"
 
-    if rpe >= 9:
-        return snap(weight * 0.97, step), "fatigue drop"
-    if avg >= 12:
-        return snap(weight + step, step), "progress"
+            # ONLY progress if consistent high reps
+        if avg >= 12 and rpe <= 8:
+            return snap(weight + step, step), "progress"
+        
+        # only reduce if clearly failing
+        if avg < 8 or rpe >= 9:
+            return snap(weight - step, step), "regress"
+        
+        return weight, "maintain"
     if avg < 8:
         return weight, "build reps"
 
@@ -207,10 +217,28 @@ def recommended_weight(ex):
     if d.empty:
         return 20
 
-    d = d.sort_values("date").tail(6)
-    d["e1rm"] = d["weight"] * (1 + d["avg_reps"] / 30)
+    d = d.sort_values("date")
 
-    return snap(d["e1rm"].mean() * 0.90, get_progression_step(ex))
+    # last actual session weight (TRUE anchor)
+    last_weight = float(d.iloc[-1]["weight"])
+
+    # only allow progression if recent performance supports it
+    recent = d.tail(3)
+
+    avg_reps = recent["avg_reps"].mean()
+
+    step = get_progression_step(ex)
+
+    # NO PROGRESSION UNLESS CONSISTENT 12+
+    if avg_reps >= 12:
+        return snap(last_weight + step, step)
+
+    # slight regression if consistently low
+    if avg_reps < 8:
+        return snap(last_weight - step, step)
+
+    # otherwise KEEP EXACT previous session
+    return last_weight
 
 # =========================================================
 # UI
