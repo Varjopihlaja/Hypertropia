@@ -263,10 +263,10 @@ if page == "Train":
     exercises = LOWER if split=="Lower" else UPPER
     session = []
 
-    cols = st.columns(4)
+    cols = st.columns(5)
 
     for i, ex in enumerate(exercises):
-        with cols[i % 4]:
+        with cols[i % 5]:
 
             st.markdown(f"### {ex}")
 
