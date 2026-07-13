@@ -375,7 +375,6 @@ elif page == "Dashboard":
         start = this_monday - timedelta(days=7)
         end = start + timedelta(days=6)
     
-    elif view == "Month":
 
     elif view == "Month":
         start = today.replace(day=1)
