@@ -280,9 +280,48 @@ if page == "Train":
             reps = []
             rep_cols = st.columns(max(1, sets))
 
+            
+
+            # Last logged reps for this exercise
+            last = valid_lifts(df[df["exercise"] == ex])
+            
+            last_reps = []
+            if not last.empty:
+                last_reps = last.sort_values("date").iloc[-1]["reps_list"]
+            
             for i2 in range(sets):
-                with rep_cols[i2]:
-                    reps.append(st.number_input(f"{i2+1}",0,30,10,key=f"{ex}r{i2}"))
+            
+                default_rep = (
+                    int(last_reps[i2])
+                    if i2 < len(last_reps)
+                    else (int(last_reps[-1]) if last_reps else 10)
+                )
+            
+                if f"{ex}_rep_{i2}" not in st.session_state:
+                    st.session_state[f"{ex}_rep_{i2}"] = default_rep
+            
+                c1, c2, c3 = st.columns([1,2,1])
+            
+                with c1:
+                    if st.button("−", key=f"{ex}_minus_{i2}"):
+                        st.session_state[f"{ex}_rep_{i2}"] = max(
+                            0,
+                            st.session_state[f"{ex}_rep_{i2}"] - 1
+                        )
+            
+                with c2:
+                    st.number_input(
+                        f"Set {i2+1}",
+                        min_value=0,
+                        max_value=30,
+                        key=f"{ex}_rep_{i2}"
+                    )
+            
+                with c3:
+                    if st.button("+", key=f"{ex}_plus_{i2}"):
+                        st.session_state[f"{ex}_rep_{i2}"] += 1
+            
+                reps.append(st.session_state[f"{ex}_rep_{i2}"])
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
