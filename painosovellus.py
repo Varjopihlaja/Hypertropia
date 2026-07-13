@@ -753,7 +753,7 @@ elif page == "Muscle Load":
     if view == "Week":
 
         df["week"] = df["date"].dt.to_period("W").apply(lambda r: r.start_time)
-        weeks = sorted(df["week"].dropna().unique())
+        weeks = sorted(df["week"].dropna().unique(), reverse=True)
 
         if not weeks:
             st.stop()
