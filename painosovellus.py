@@ -309,7 +309,7 @@ if page == "Train":
                         )
                     )
 
-                        st.markdown(
+            st.markdown(
                 """
                 <style>
                 div[data-testid="stNumberInput"] {
