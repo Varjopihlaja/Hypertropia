@@ -263,10 +263,10 @@ if page == "Train":
     exercises = LOWER if split=="Lower" else UPPER
     session = []
 
-    cols = st.columns(5)
+    cols = st.columns(4)
 
     for i, ex in enumerate(exercises):
-        with cols[i % 5]:
+        with cols[i % 4]:
 
             st.markdown(f"### {ex}")
 
@@ -278,7 +278,6 @@ if page == "Train":
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
 
             # Last logged reps
-
             last_reps = []
             last_df = valid_lifts(df[df["exercise"] == ex])
             
@@ -287,8 +286,8 @@ if page == "Train":
             
             reps = []
             
-            # small boxes next to each other
-            rep_cols = st.columns([1]*sets)
+            # keep sets in one row
+            rep_cols = st.columns(sets)
             
             for i2 in range(sets):
             
@@ -301,7 +300,7 @@ if page == "Train":
                 with rep_cols[i2]:
                     reps.append(
                         st.number_input(
-                            " ",
+                            f"Set {i2+1}",
                             min_value=0,
                             max_value=30,
                             value=default_rep,
@@ -309,6 +308,7 @@ if page == "Train":
                             key=f"{ex}_rep_{i2}"
                         )
                     )
+        
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
