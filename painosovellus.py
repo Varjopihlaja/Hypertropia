@@ -277,7 +277,7 @@ if page == "Train":
 
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
 
-                        # Last logged reps
+            # Last logged reps
             last_reps = []
             last_df = valid_lifts(df[df["exercise"] == ex])
             
@@ -286,27 +286,24 @@ if page == "Train":
             
             reps = []
             
-            rep_cols = st.columns(max(1, sets))
-            
             for i2 in range(sets):
-                with rep_cols[i2]:
             
-                    default_rep = (
-                        int(last_reps[i2])
-                        if i2 < len(last_reps)
-                        else (int(last_reps[-1]) if last_reps else 10)
-                    )
+                default_rep = (
+                    int(last_reps[i2])
+                    if i2 < len(last_reps)
+                    else (int(last_reps[-1]) if last_reps else 10)
+                )
             
-                    reps.append(
-                        st.number_input(
-                            f"Set {i2+1}",
-                            min_value=0,
-                            max_value=30,
-                            value=default_rep,
-                            step=1,          # <- uses built-in +/- buttons
-                            key=f"{ex}r{i2}"
-                        )
+                reps.append(
+                    st.number_input(
+                        f"Set {i2+1}",
+                        min_value=0,
+                        max_value=30,
+                        value=default_rep,
+                        step=1,
+                        key=f"{ex}_rep_{i2}"
                     )
+                )
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
