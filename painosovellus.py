@@ -366,8 +366,8 @@ elif page == "Dashboard":
 
     if view == "Week":
     # Current calendar week (Mon-Sun)
-    start = today - timedelta(days=today.weekday())
-    end = start + timedelta(days=6)
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
 
     elif view == "Last Week":
         # Previous calendar week (Mon-Sun)
