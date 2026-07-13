@@ -286,6 +286,9 @@ if page == "Train":
             
             reps = []
             
+            # keep small boxes next to each other
+            rep_cols = st.columns(max(1, sets))
+            
             for i2 in range(sets):
             
                 default_rep = (
@@ -294,16 +297,17 @@ if page == "Train":
                     else (int(last_reps[-1]) if last_reps else 10)
                 )
             
-                reps.append(
-                    st.number_input(
-                        f"Set {i2+1}",
-                        min_value=0,
-                        max_value=30,
-                        value=default_rep,
-                        step=1,
-                        key=f"{ex}_rep_{i2}"
+                with rep_cols[i2]:
+                    reps.append(
+                        st.number_input(
+                            f"Set {i2+1}",
+                            min_value=0,
+                            max_value=30,
+                            value=default_rep,
+                            step=1,
+                            key=f"{ex}_rep_{i2}"
+                        )
                     )
-                )
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
