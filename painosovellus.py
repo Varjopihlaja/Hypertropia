@@ -351,16 +351,31 @@ elif page == "Dashboard":
     summary["date"] = pd.to_datetime(summary["date"], errors="coerce").dt.date
     meta = day_meta(summary)
 
-    view = st.radio("View", ["Week", "Month", "3 Months", "All"], horizontal=True)
+
+    view = st.radio(
+    "View",
+    ["Week", "Last Week", "Month", "3 Months", "All"],
+    horizontal=True
+)
 
     today = datetime.today().date()
 
     # =========================
     # TIME WINDOWS
     # =========================
+
     if view == "Week":
-        start = today - timedelta(days=today.weekday())
+    # Current calendar week (Mon-Sun)
+    start = today - timedelta(days=today.weekday())
+    end = start + timedelta(days=6)
+
+    elif view == "Last Week":
+        # Previous calendar week (Mon-Sun)
+        this_monday = today - timedelta(days=today.weekday())
+        start = this_monday - timedelta(days=7)
         end = start + timedelta(days=6)
+    
+    elif view == "Month":
 
     elif view == "Month":
         start = today.replace(day=1)
