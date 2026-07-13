@@ -309,6 +309,17 @@ if page == "Train":
                         )
                     )
 
+                        st.markdown(
+                """
+                <style>
+                div[data-testid="stNumberInput"] {
+                    min-width: 80px;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
             weight = st.number_input("Weight",0.0,300.0,float(rec_w),step=0.5,key=f"{ex}w")
 
