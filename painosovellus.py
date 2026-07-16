@@ -284,30 +284,35 @@ if page == "Train":
             if not last_df.empty:
                 last_reps = last_df.sort_values("date").iloc[-1]["reps_list"]
             
-            reps = []
+            
             
             # keep sets in one row
-            rep_cols = st.columns(sets)
+            reps = []
             
-            for i2 in range(sets):
+            if sets > 0:
+                rep_cols = st.columns(sets)
             
-                default_rep = (
-                    int(last_reps[i2])
-                    if i2 < len(last_reps)
-                    else (int(last_reps[-1]) if last_reps else 10)
-                )
+                for i2 in range(sets):
             
-                with rep_cols[i2]:
-                    reps.append(
-                        st.number_input(
-                            f"Set {i2+1}",
-                            min_value=0,
-                            max_value=30,
-                            value=default_rep,
-                            step=1,
-                            key=f"{ex}_rep_{i2}"
-                        )
+                    default_rep = (
+                        int(last_reps[i2])
+                        if i2 < len(last_reps)
+                        else (int(last_reps[-1]) if last_reps else 10)
                     )
+            
+                    with rep_cols[i2]:
+                        reps.append(
+                            st.number_input(
+                                f"Set {i2+1}",
+                                min_value=0,
+                                max_value=30,
+                                value=default_rep,
+                                step=1,
+                                key=f"{ex}_rep_{i2}"
+                            )
+                        )
+            else:
+                reps = []
         
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
@@ -318,15 +323,14 @@ if page == "Train":
             st.caption(msg)
             st.success(f"Next: {new_w}")
 
-            vol = sum(reps) * weight if sets > 0 else 0
-
+            vol =  sum(reps) * weight if reps else 0,
             session.append({
                 "date": date.strftime("%Y-%m-%d"),
                 "exercise": ex,
                 "muscle": MUSCLE[ex],
                 "sets": sets,
                 "reps_list": reps,
-                "avg_reps": sum(reps)/max(len(reps),1),
+                "avg_reps": np.mean(reps) if reps else 0,
                 "rpe": rpe,
                 "weight": weight,
                 "volume": vol
