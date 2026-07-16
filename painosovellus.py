@@ -323,7 +323,7 @@ if page == "Train":
             st.caption(msg)
             st.success(f"Next: {new_w}")
 
-            vol =  sum(reps) * weight if reps else 0,
+            vol =  sum(reps) * weight if reps else 0
             session.append({
                 "date": date.strftime("%Y-%m-%d"),
                 "exercise": ex,
