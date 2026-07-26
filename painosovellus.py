@@ -148,7 +148,14 @@ df = safe_df()
 # EXERCISES
 # =========================================================
 
-LOWER = ["RDL","Back Squat","Bulgarian Split Squat","Leg Extension","Hip Abduction"]
+LOWER = [
+    "RDL",
+    "Back Squat",
+    "Bulgarian Split Squat",
+    "Leg Extension",
+    "Back Extension",
+    "Hip Abduction"
+]
 
 UPPER = [
     "Assisted Pull-Up","Assisted Dip","Chest Supported Machine Row",
@@ -158,7 +165,7 @@ UPPER = [
 
 MUSCLE = {
     "Back Squat":"legs","RDL":"legs","Bulgarian Split Squat":"legs",
-    "Leg Extension":"legs","Hip Abduction":"glutes",
+    "Leg Extension":"legs","Back Extension":"glutes","Hip Abduction":"glutes",
     "Chest Supported Machine Row":"back","Dumbbell Incline Press":"chest",
     "Dumbbell Shoulder Press":"shoulders","Seated Bicep Curl":"arms",
     "Machine Abs":"core","Assisted Pull-Up":"back","Assisted Dip":"chest"
@@ -673,6 +680,7 @@ elif page == "Muscle Load":
         "Back Squat": ["quads","glutes","core"],
         "RDL": ["hamstrings","glutes","back"],
         "Bulgarian Split Squat": ["quads","glutes"],
+        "Back Extension": ["glutes","hamstrings","back"],
         "Leg Extension": ["quads"],
         "Hip Abduction": ["glutes"],
         "Assisted Pull-Up": ["back","biceps"],
