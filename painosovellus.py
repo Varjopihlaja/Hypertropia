@@ -283,6 +283,17 @@ if page == "Train":
             rec_w = recommended_weight(ex)
 
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
+            if ex == "Hip Abduction":
+                sets = 0
+                st.caption("Currently not performed")
+            else:
+                sets = st.number_input(
+                    "Sets",
+                     0,
+                     6,
+                    int(last["sets"]) if last else 3,
+                    key=f"{ex}s"
+                    )
 
             # Last logged reps
             last_reps = []
