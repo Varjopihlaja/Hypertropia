@@ -283,52 +283,53 @@ if page == "Train":
             rec_w = recommended_weight(ex)
 
             sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
+            # Sets
             if ex == "Hip Abduction":
                 sets = 0
+                reps = []
                 st.caption("Currently not performed")
             else:
                 sets = st.number_input(
                     "Sets",
-                     0,
-                     6,
-                    int(last["sets"]) if last else 3,
-                    key=f"{ex}s"
-                    )
+                    min_value=0,
+                    max_value=6,
+                    value=int(last["sets"]) if last else 3,
+                    step=1,
+                    key=f"sets_{ex}"
+                )
 
-            # Last logged reps
-            last_reps = []
-            last_df = valid_lifts(df[df["exercise"] == ex])
+                # Last logged reps
+                last_reps = []
+                last_df = valid_lifts(df[df["exercise"] == ex])
             
-            if not last_df.empty:
-                last_reps = last_df.sort_values("date").iloc[-1]["reps_list"]
+                if not last_df.empty:
+                    last_reps = last_df.sort_values("date").iloc[-1]["reps_list"]
             
+                # Keep reps in one row
+                reps = []
             
+                if sets > 0:
+                    rep_cols = st.columns(int(sets))
             
-            # keep sets in one row
-            reps = []
+                    for i2 in range(int(sets)):
             
-            if sets > 0:
-                rep_cols = st.columns(sets)
-            
-                for i2 in range(sets):
-            
-                    default_rep = (
-                        int(last_reps[i2])
-                        if i2 < len(last_reps)
-                        else (int(last_reps[-1]) if last_reps else 10)
-                    )
-            
-                    with rep_cols[i2]:
-                        reps.append(
-                            st.number_input(
-                                f"Set {i2+1}",
-                                min_value=0,
-                                max_value=30,
-                                value=default_rep,
-                                step=1,
-                                key=f"{ex}_rep_{i2}"
-                            )
+                        default_rep = (
+                            int(last_reps[i2])
+                            if i2 < len(last_reps)
+                            else (int(last_reps[-1]) if last_reps else 10)
                         )
+            
+                        with rep_cols[i2]:
+                            reps.append(
+                                st.number_input(
+                                    f"Set {i2+1}",
+                                    min_value=0,
+                                    max_value=30,
+                                    value=default_rep,
+                                    step=1,
+                                    key=f"{ex}_rep_{i2}"
+                                )
+                            )
             else:
                 reps = []
         
