@@ -206,14 +206,14 @@ def progression(ex, reps, rpe, weight):
         return weight, "maintain"
 
             # ONLY progress if consistent high reps
-        if avg >= 12 and rpe <= 8:
-            return snap(weight + step, step), "progress"
+    if avg >= 12 and rpe <= 8:
+        return snap(weight + step, step), "progress"
         
         # only reduce if clearly failing
-        if avg < 8 or rpe >= 9:
-            return snap(weight - step, step), "regress"
+    if avg < 8 or rpe >= 9:
+        return snap(weight - step, step), "regress"
         
-        return weight, "maintain"
+    return weight, "maintain"
     if avg < 8:
         return weight, "build reps"
 
@@ -282,7 +282,7 @@ if page == "Train":
 
             rec_w = recommended_weight(ex)
 
-            sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
+            #sets = st.number_input("Sets",0,6,int(last["sets"]) if last else 3,key=f"{ex}s")
             # Sets
             if ex == "Hip Abduction":
                 sets = 0
@@ -330,8 +330,7 @@ if page == "Train":
                                     key=f"{ex}_rep_{i2}"
                                 )
                             )
-            else:
-                reps = []
+        
         
 
             rpe = st.slider("RPE",1,10,8,key=f"{ex}rpe")
