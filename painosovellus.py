@@ -158,7 +158,7 @@ LOWER = [
 ]
 
 UPPER = [
-    "Assisted Pull-Up","Assisted Dip","Chest Supported Machine Row",
+    "Assisted Pull-Up","Tricep Pushdown","Chest Supported Machine Row",
     "Dumbbell Shoulder Press","Seated Bicep Curl",
     "Dumbbell Incline Press","Machine Abs"
 ]
@@ -168,7 +168,7 @@ MUSCLE = {
     "Leg Extension":"legs","Back Extension":"glutes","Hip Abduction":"glutes",
     "Chest Supported Machine Row":"back","Dumbbell Incline Press":"chest",
     "Dumbbell Shoulder Press":"shoulders","Seated Bicep Curl":"arms",
-    "Machine Abs":"core","Assisted Pull-Up":"back","Assisted Dip":"chest"
+    "Machine Abs":"core","Assisted Pull-Up":"back","Tricep Pushdown":"triceps"
 }
 
 # =========================================================
@@ -182,7 +182,7 @@ def snap(w, step):
     return round(round(w / step) * step, 2)
 
 def is_assisted(ex):
-    return "assisted pull-up" in ex.lower() or "assisted dip" in ex.lower()
+    return "assisted pull-up" in ex.lower()
 
 def progression(ex, reps, rpe, weight):
     reps = list(map(int, reps))
@@ -695,7 +695,7 @@ elif page == "Muscle Load":
         "Leg Extension": ["quads"],
         "Hip Abduction": ["glutes"],
         "Assisted Pull-Up": ["back","biceps"],
-        "Assisted Dip": ["chest","triceps","shoulders"],
+        "Tricep Pushdown": ["triceps"],
         "Chest Supported Machine Row": ["back","biceps"],
         "Dumbbell Shoulder Press": ["shoulders","triceps"],
         "Seated Bicep Curl": ["biceps"],
